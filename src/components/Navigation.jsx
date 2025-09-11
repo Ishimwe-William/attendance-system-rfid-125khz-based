@@ -26,7 +26,8 @@ import {
   Scanner as ScannerIcon,
   PersonAdd as PersonAddIcon,
   List as ListIcon,
-  Logout as LogoutIcon
+  Logout as LogoutIcon,
+  People as PeopleIcon
 } from '@mui/icons-material';
 
 export const Navigation = () => {
@@ -49,7 +50,6 @@ export const Navigation = () => {
 
   const menuItems = [
     { text: 'Dashboard', path: '/', icon: <DashboardIcon />, roles: ['admin', 'lecturer'] },
-    { text: 'Sign Up', path: '/signup', icon: <PersonAddIcon />, roles: ['admin'] },
     { text: 'Students', path: '/students', icon: <SchoolIcon />, roles: ['admin'] },
     { text: 'Courses', path: '/courses', icon: <ClassIcon />, roles: ['admin'] },
     { text: 'Lecturers', path: '/lecturers', icon: <PersonIcon />, roles: ['admin'] },
@@ -58,6 +58,7 @@ export const Navigation = () => {
     { text: 'Settings', path: '/settings', icon: <SettingsIcon />, roles: ['admin'] },
     { text: 'Attendance', path: '/attendance', icon: <ListIcon />, roles: ['admin', 'lecturer'] },
     { text: 'Scanner', path: '/scanner', icon: <ScannerIcon />, roles: ['admin', 'lecturer'] },
+    { text: 'Users', path: '/users', icon: <PeopleIcon />, roles: ['admin'] },
   ];
 
   return (

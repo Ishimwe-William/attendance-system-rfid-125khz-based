@@ -1,125 +1,194 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { signInWithEmailAndPassword, getAuth, sendPasswordResetEmail } from 'firebase/auth';
+import { TextField, Button, Alert, Box, Typography, Link } from '@mui/material';
+import { useNavigate, useLocation, Link as RouterLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import {
-  Container,
-  Paper,
-  TextField,
-  Button,
-  Typography,
-  Box,
-  Alert,
-  CircularProgress
-} from '@mui/material';
 
-export const Login = () => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [resetMode, setResetMode] = useState(false);
-  const [localError, setLocalError] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const { login, resetPassword, error } = useAuth();
-  const navigate = useNavigate();
+const Login = () => {
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [resetEmailSent, setResetEmailSent] = useState(false);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLocalError(null);
-    setLoading(true);
-    try {
-      if (resetMode) {
-        await resetPassword(email);
-        alert('Password reset email sent. Please check your inbox.');
-        setResetMode(false);
-      } else {
-        await login(email, password);
-        navigate('/');
-      }
-    } catch (err) {
-      let errorMessage = 'An error occurred. Please try again.';
-      if (err.code === 'auth/wrong-password') {
-        errorMessage = 'Incorrect password.';
-      } else if (err.code === 'auth/user-not-found') {
-        errorMessage = 'No user found with this email.';
-      } else if (err.code === 'auth/invalid-email') {
-        errorMessage = 'Invalid email format.';
-      }
-      setLocalError(errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  };
+    const auth = getAuth();
+    const navigate = useNavigate();
+    const location = useLocation();
+    const { isAuthenticated, clearError } = useAuth();
 
-  return (
-      <Container component="main" maxWidth="xs">
-        <Box
-            sx={{
-              marginTop: 8,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-            }}
-        >
-          <Paper elevation={3} sx={{ p: 4, width: '100%' }}>
-            <Typography component="h1" variant="h5" align="center">
-              {resetMode ? 'Reset Password' : 'Login'}
+    const from = location.state?.from?.pathname || '/';
+
+    // Redirect if already authenticated
+    useEffect(() => {
+        if (isAuthenticated) {
+            navigate(from, { replace: true });
+        }
+    }, [isAuthenticated, navigate, from]);
+
+    // Clear errors when component mounts
+    useEffect(() => {
+        clearError();
+        setError('');
+    }, [clearError]);
+
+    const validateForm = () => {
+        if (!email.trim()) {
+            setError('Email is required');
+            return false;
+        }
+        if (!password.trim()) {
+            setError('Password is required');
+            return false;
+        }
+        if (!/\S+@\S+\.\S+/.test(email)) {
+            setError('Please enter a valid email address');
+            return false;
+        }
+        return true;
+    };
+
+    const handleLogin = async (e) => {
+        e.preventDefault();
+
+        if (!validateForm()) return;
+
+        setLoading(true);
+        setError('');
+
+        try {
+            await signInWithEmailAndPassword(auth, email.trim(), password);
+            // Navigation will be handled by the useEffect hook
+        } catch (error) {
+            console.error('Login error:', error);
+
+            // Provide user-friendly error messages
+            switch (error.code) {
+                case 'auth/user-not-found':
+                    setError('No account found with this email address');
+                    break;
+                case 'auth/wrong-password':
+                    setError('Incorrect password');
+                    break;
+                case 'auth/invalid-email':
+                    setError('Invalid email address');
+                    break;
+                case 'auth/user-disabled':
+                    setError('This account has been disabled');
+                    break;
+                case 'auth/too-many-requests':
+                    setError('Too many failed login attempts. Please try again later');
+                    break;
+                case 'auth/network-request-failed':
+                    setError('Network error. Please check your connection');
+                    break;
+                default:
+                    setError('Failed to login. Please try again');
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handlePasswordReset = async () => {
+        if (!email.trim()) {
+            setError('Please enter your email address first');
+            return;
+        }
+
+        if (!/\S+@\S+\.\S+/.test(email)) {
+            setError('Please enter a valid email address');
+            return;
+        }
+
+        try {
+            await sendPasswordResetEmail(auth, email.trim());
+            setResetEmailSent(true);
+            setError('');
+        } catch (error) {
+            console.error('Password reset error:', error);
+            switch (error.code) {
+                case 'auth/user-not-found':
+                    setError('No account found with this email address');
+                    break;
+                default:
+                    setError('Failed to send reset email. Please try again');
+            }
+        }
+    };
+
+    return (
+        <Box component="form" onSubmit={handleLogin} sx={{ maxWidth: 400, mx: 'auto', mt: 4, p: 2 }}>
+            <Typography variant="h4" component="h1" gutterBottom>
+                Login
             </Typography>
-            <Box component="form" onSubmit={handleSubmit} sx={{ mt: 2 }}>
-              <TextField
-                  margin="normal"
-                  required
-                  fullWidth
-                  id="email"
-                  label="Email Address"
-                  name="email"
-                  autoComplete="email"
-                  autoFocus
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  error={!!localError && localError.includes('email')}
-                  helperText={localError && localError.includes('email') ? localError : ''}
-              />
-              {!resetMode && (
-                  <TextField
-                      margin="normal"
-                      required
-                      fullWidth
-                      name="password"
-                      label="Password"
-                      type="password"
-                      id="password"
-                      autoComplete="current-password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      error={!!localError && localError.includes('password')}
-                      helperText={localError && localError.includes('password') ? localError : ''}
-                  />
-              )}
-              {(error || localError) && (
-                  <Alert severity="error" sx={{ mt: 2 }}>
-                    {localError || error}
-                  </Alert>
-              )}
-              <Button
-                  type="submit"
-                  fullWidth
-                  variant="contained"
-                  sx={{ mt: 3, mb: 2 }}
-                  disabled={loading}
-              >
-                {loading ? <CircularProgress size={24} /> : resetMode ? 'Send Reset Link' : 'Login'}
-              </Button>
-              <Button
-                  fullWidth
-                  color="primary"
-                  onClick={() => setResetMode(!resetMode)}
-                  sx={{ textTransform: 'none' }}
-                  disabled={loading}
-              >
-                {resetMode ? 'Back to Login' : 'Forgot Password?'}
-              </Button>
+
+            {error && (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                    {error}
+                </Alert>
+            )}
+
+            {resetEmailSent && (
+                <Alert severity="success" sx={{ mb: 2 }}>
+                    Password reset email sent! Check your inbox.
+                </Alert>
+            )}
+
+            <TextField
+                fullWidth
+                label="Email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                margin="normal"
+                required
+                autoComplete="email"
+                disabled={loading}
+            />
+
+            <TextField
+                fullWidth
+                label="Password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                margin="normal"
+                required
+                autoComplete="current-password"
+                disabled={loading}
+            />
+
+            <Button
+                type="submit"
+                fullWidth
+                variant="contained"
+                disabled={loading}
+                sx={{ mt: 2, mb: 2 }}
+            >
+                {loading ? 'Logging in...' : 'Login'}
+            </Button>
+
+            <Box sx={{ textAlign: 'center' }}>
+                <Link
+                    component="button"
+                    type="button"
+                    variant="body2"
+                    onClick={handlePasswordReset}
+                    disabled={loading}
+                    sx={{ mb: 1, display: 'block' }}
+                >
+                    Forgot password?
+                </Link>
+
+                <Typography variant="body2">
+                    Don't have an account?{' '}
+                    <Link component={RouterLink} to="/signup">
+                        Sign up
+                    </Link>
+                </Typography>
             </Box>
-          </Paper>
         </Box>
-      </Container>
-  );
+    );
 };
+
+export default Login;

@@ -1,182 +1,258 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
+import React, { useState, useEffect } from 'react';
+import { createUserWithEmailAndPassword, getAuth, updateProfile } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
-import { auth, db } from '../config/firebase';
-import { useAuth } from '../context/AuthContext';
+import { db } from '../config/firebase';
 import {
-    Container,
-    Paper,
     TextField,
     Button,
-    Typography,
-    Box,
     Alert,
-    CircularProgress,
+    Box,
+    Typography,
     FormControl,
     InputLabel,
     Select,
-    MenuItem
+    MenuItem,
+    Link
 } from '@mui/material';
-import { Formik, Form, Field } from 'formik';
-import * as Yup from 'yup';
-import { Role } from '../models/types';
+import { useNavigate, Link as RouterLink } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 
 const Signup = () => {
-    const [localError, setLocalError] = useState(null);
-    const [loading, setLoading] = useState(false);
-    const { user } = useAuth();
-    const navigate = useNavigate();
-
-    const validationSchema = Yup.object({
-        name: Yup.string().required('Required'),
-        email: Yup.string().email('Invalid email').required('Required'),
-        password: Yup.string()
-            .min(6, 'Password must be at least 6 characters')
-            .required('Required'),
-        role: Yup.string().oneOf([Role.ADMIN, Role.LECTURER], 'Invalid role').required('Required'),
-    });
-
-    const initialValues = {
+    const [formData, setFormData] = useState({
         name: '',
         email: '',
         password: '',
-        role: Role.LECTURER,
+        confirmPassword: '',
+        role: 'lecture'
+    });
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    const auth = getAuth();
+    const navigate = useNavigate();
+    const { isAuthenticated, clearError } = useAuth();
+
+    // Redirect if already authenticated
+    useEffect(() => {
+        if (isAuthenticated) {
+            navigate('/', { replace: true });
+        }
+    }, [isAuthenticated, navigate]);
+
+    // Clear errors when component mounts
+    useEffect(() => {
+        clearError();
+        setError('');
+    }, [clearError]);
+
+    const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({
+            ...prev,
+            [name]: value
+        }));
     };
 
-    const handleSubmit = async (values) => {
-        setLocalError(null);
-        setLoading(true);
-        try {
-            // Create user in Firebase Authentication
-            const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password);
-            const newUser = userCredential.user;
+    const validateForm = () => {
+        const { name, email, password, confirmPassword } = formData;
 
-            // Store additional user data in Firestore
-            await setDoc(doc(db, 'users', newUser.uid), {
-                name: values.name,
-                email: values.email,
-                role: values.role,
-                createdAt: new Date().toISOString(),
-                createdBy: user.uid,
+        if (!name.trim()) {
+            setError('Name is required');
+            return false;
+        }
+
+        if (name.trim().length < 2) {
+            setError('Name must be at least 2 characters');
+            return false;
+        }
+
+        if (!email.trim()) {
+            setError('Email is required');
+            return false;
+        }
+
+        if (!/\S+@\S+\.\S+/.test(email)) {
+            setError('Please enter a valid email address');
+            return false;
+        }
+
+        if (!password) {
+            setError('Password is required');
+            return false;
+        }
+
+        if (password.length < 6) {
+            setError('Password must be at least 6 characters');
+            return false;
+        }
+
+        if (password !== confirmPassword) {
+            setError('Passwords do not match');
+            return false;
+        }
+
+        return true;
+    };
+
+    const handleSignup = async (e) => {
+        e.preventDefault();
+
+        if (!validateForm()) return;
+
+        setLoading(true);
+        setError('');
+
+        try {
+            const { name, email, password, role } = formData;
+
+            // Create user account
+            const userCredential = await createUserWithEmailAndPassword(
+                auth,
+                email.trim(),
+                password
+            );
+            const user = userCredential.user;
+
+            // Update user profile
+            await updateProfile(user, {
+                displayName: name.trim()
             });
 
-            alert('User created successfully!');
-            navigate('/'); // Redirect to dashboard
-        } catch (err) {
-            let errorMessage = 'An error occurred. Please try again.';
-            if (err.code === 'auth/email-already-in-use') {
-                errorMessage = 'Email already in use.';
-            } else if (err.code === 'auth/invalid-email') {
-                errorMessage = 'Invalid email format.';
+            // Save user data to Firestore
+            await setDoc(doc(db, 'users', user.uid), {
+                name: name.trim(),
+                email: email.trim(),
+                role,
+                createdAt: new Date(),
+                emailVerified: user.emailVerified
+            });
+
+            // Navigation will be handled by the AuthContext
+        } catch (error) {
+            console.error('Signup error:', error);
+
+            // Provide user-friendly error messages
+            switch (error.code) {
+                case 'auth/email-already-in-use':
+                    setError('An account with this email already exists');
+                    break;
+                case 'auth/invalid-email':
+                    setError('Invalid email address');
+                    break;
+                case 'auth/operation-not-allowed':
+                    setError('Email/password accounts are not enabled');
+                    break;
+                case 'auth/weak-password':
+                    setError('Password is too weak. Please choose a stronger password');
+                    break;
+                case 'auth/network-request-failed':
+                    setError('Network error. Please check your connection');
+                    break;
+                default:
+                    setError('Failed to create account. Please try again');
             }
-            setLocalError(errorMessage);
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <Container component="main" maxWidth="xs">
-            <Box
-                sx={{
-                    marginTop: 8,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                }}
+        <Box component="form" onSubmit={handleSignup} sx={{ maxWidth: 400, mx: 'auto', mt: 4, p: 2 }}>
+            <Typography variant="h4" component="h1" gutterBottom>
+                Sign Up
+            </Typography>
+
+            {error && (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                    {error}
+                </Alert>
+            )}
+
+            <TextField
+                fullWidth
+                label="Full Name"
+                name="name"
+                value={formData.name}
+                onChange={handleInputChange}
+                margin="normal"
+                required
+                autoComplete="name"
+                disabled={loading}
+            />
+
+            <TextField
+                fullWidth
+                label="Email"
+                name="email"
+                type="email"
+                value={formData.email}
+                onChange={handleInputChange}
+                margin="normal"
+                required
+                autoComplete="email"
+                disabled={loading}
+            />
+
+            <TextField
+                fullWidth
+                label="Password"
+                name="password"
+                type="password"
+                value={formData.password}
+                onChange={handleInputChange}
+                margin="normal"
+                required
+                autoComplete="new-password"
+                disabled={loading}
+                helperText="Must be at least 6 characters"
+            />
+
+            <TextField
+                fullWidth
+                label="Confirm Password"
+                name="confirmPassword"
+                type="password"
+                value={formData.confirmPassword}
+                onChange={handleInputChange}
+                margin="normal"
+                required
+                autoComplete="new-password"
+                disabled={loading}
+            />
+
+            <FormControl fullWidth margin="normal" required>
+                <InputLabel>Role</InputLabel>
+                <Select
+                    name="role"
+                    value={formData.role}
+                    onChange={handleInputChange}
+                    label="Role"
+                    disabled={loading}
+                >
+                    <MenuItem value="lecture">Lecturer</MenuItem>
+                    <MenuItem value="admin">Admin</MenuItem>
+                </Select>
+            </FormControl>
+
+            <Button
+                type="submit"
+                fullWidth
+                variant="contained"
+                disabled={loading}
+                sx={{ mt: 2, mb: 2 }}
             >
-                <Paper elevation={3} sx={{ p: 4, width: '100%' }}>
-                    <Typography component="h1" variant="h5" align="center">
-                        Sign Up
-                    </Typography>
-                    <Formik
-                        initialValues={initialValues}
-                        validationSchema={validationSchema}
-                        onSubmit={handleSubmit}
-                    >
-                        {({ errors, touched, values, setFieldValue }) => (
-                            <Form>
-                                <Field
-                                    as={TextField}
-                                    margin="normal"
-                                    required
-                                    fullWidth
-                                    id="name"
-                                    label="Name"
-                                    name="name"
-                                    autoComplete="name"
-                                    autoFocus
-                                    error={touched.name && !!errors.name}
-                                    helperText={touched.name && errors.name}
-                                />
-                                <Field
-                                    as={TextField}
-                                    margin="normal"
-                                    required
-                                    fullWidth
-                                    id="email"
-                                    label="Email Address"
-                                    name="email"
-                                    autoComplete="email"
-                                    error={touched.email && !!errors.email}
-                                    helperText={touched.email && errors.email}
-                                />
-                                <Field
-                                    as={TextField}
-                                    margin="normal"
-                                    required
-                                    fullWidth
-                                    name="password"
-                                    label="Password"
-                                    type="password"
-                                    id="password"
-                                    autoComplete="new-password"
-                                    error={touched.password && !!errors.password}
-                                    helperText={touched.password && errors.password}
-                                />
-                                <FormControl fullWidth margin="normal">
-                                    <InputLabel>Role</InputLabel>
-                                    <Field
-                                        as={Select}
-                                        name="role"
-                                        value={values.role}
-                                        onChange={(e) => setFieldValue('role', e.target.value)}
-                                        error={touched.role && !!errors.role}
-                                    >
-                                        <MenuItem value={Role.ADMIN}>Admin</MenuItem>
-                                        <MenuItem value={Role.LECTURER}>Lecturer</MenuItem>
-                                    </Field>
-                                </FormControl>
-                                {localError && (
-                                    <Alert severity="error" sx={{ mt: 2 }}>
-                                        {localError}
-                                    </Alert>
-                                )}
-                                <Button
-                                    type="submit"
-                                    fullWidth
-                                    variant="contained"
-                                    sx={{ mt: 3, mb: 2 }}
-                                    disabled={loading}
-                                >
-                                    {loading ? <CircularProgress size={24} /> : 'Sign Up'}
-                                </Button>
-                                <Button
-                                    fullWidth
-                                    color="primary"
-                                    onClick={() => navigate('/login')}
-                                    sx={{ textTransform: 'none' }}
-                                    disabled={loading}
-                                >
-                                    Back to Login
-                                </Button>
-                            </Form>
-                        )}
-                    </Formik>
-                </Paper>
+                {loading ? 'Creating Account...' : 'Sign Up'}
+            </Button>
+
+            <Box sx={{ textAlign: 'center' }}>
+                <Typography variant="body2">
+                    Already have an account?{' '}
+                    <Link component={RouterLink} to="/login">
+                        Login
+                    </Link>
+                </Typography>
             </Box>
-        </Container>
+        </Box>
     );
 };
 

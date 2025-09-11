@@ -1,8 +1,7 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, useAuth } from './context/AuthContext';
-import {Navigation} from './components/Navigation';
-import {Login} from './pages/Login';
+import {Routes, Route, Navigate, BrowserRouter} from 'react-router-dom';
+import {AuthProvider, useAuth} from './context/AuthContext';
+import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Dashboard from './pages/Dashboard';
 import AttendanceList from './components/AttendanceList';
@@ -12,38 +11,30 @@ import ExamsList from './components/ExamsList';
 import LecturersList from './components/LecturersList';
 import StudentsList from './components/StudentsList';
 import Settings from './pages/Settings';
-
-const PrivateRoute = ({ children, adminOnly }) => {
-    const { user, loading } = useAuth();
-    if (loading) return <div>Loading...</div>;
-    if (!user) return <Navigate to="/login" />;
-    if (adminOnly && user.role !== 'admin') return <Navigate to="/" />;
-    return (
-        <>
-            <Navigation />
-            {children}
-        </>
-    );
-};
+import PrivateRoute from "./components/PrivateRoute";
+import UsersList from "./components/UsersList";
+import NavigationBar from "./components/NavigationBar";
 
 const App = () => {
     return (
         <AuthProvider>
-            <Router>
+            <BrowserRouter>
+                <NavigationBar/>
                 <Routes>
-                    <Route path="/login" element={<Login />} />
-                    <Route path="/signup" element={<Signup />} />
-                    <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
-                    <Route path="/attendance" element={<PrivateRoute><AttendanceList /></PrivateRoute>} />
-                    <Route path="/courses" element={<PrivateRoute adminOnly><CoursesList /></PrivateRoute>} />
-                    <Route path="/devices" element={<PrivateRoute adminOnly><DevicesList /></PrivateRoute>} />
-                    <Route path="/exams" element={<PrivateRoute adminOnly><ExamsList /></PrivateRoute>} />
-                    <Route path="/lecturers" element={<PrivateRoute adminOnly><LecturersList /></PrivateRoute>} />
-                    <Route path="/students" element={<PrivateRoute adminOnly><StudentsList /></PrivateRoute>} />
-                    <Route path="/settings" element={<PrivateRoute adminOnly><Settings /></PrivateRoute>} />
-                    <Route path="*" element={<Navigate to="/" />} />
+                    <Route path="/login" element={<Login/>}/>
+                    <Route path="/signup" element={<Signup/>}/>
+                    <Route path="/" element={<PrivateRoute><Dashboard/></PrivateRoute>}/>
+                    <Route path="/attendance" element={<PrivateRoute><AttendanceList/></PrivateRoute>}/>
+                    <Route path="/courses" element={<PrivateRoute adminOnly={true}><CoursesList/></PrivateRoute>}/>
+                    <Route path="/devices" element={<PrivateRoute adminOnly={true}><DevicesList/></PrivateRoute>}/>
+                    <Route path="/exams" element={<PrivateRoute adminOnly={true}><ExamsList/></PrivateRoute>}/>
+                    <Route path="/lecturers" element={<PrivateRoute adminOnly={true}><LecturersList/></PrivateRoute>}/>
+                    <Route path="/students" element={<PrivateRoute adminOnly={true}><StudentsList/></PrivateRoute>}/>
+                    <Route path="/settings" element={<PrivateRoute adminOnly={true}><Settings/></PrivateRoute>}/>
+                    <Route path="/users" element={<PrivateRoute adminOnly={true}><UsersList/></PrivateRoute>}/>
+                    <Route path="*" element={<Navigate to="/"/>}/>
                 </Routes>
-            </Router>
+            </BrowserRouter>
         </AuthProvider>
     );
 };

@@ -1,285 +1,483 @@
 import React, { useState, useEffect } from 'react';
-import { collection, onSnapshot, query } from 'firebase/firestore';
-import { db, COLLECTIONS } from '../config/firebase';
-import { useDatabase } from '../hooks/useDatabase';
+import { collection, onSnapshot, query, doc, setDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '../config/firebase';
 import { DataGrid } from '@mui/x-data-grid';
 import {
+    Box,
+    Typography,
     Button,
     Dialog,
     DialogTitle,
     DialogContent,
     DialogActions,
     TextField,
-    FormControl,
-    InputLabel,
     Select,
     MenuItem,
+    InputLabel,
+    FormControl,
     Alert,
-    Box,
-    Typography
+    Snackbar,
 } from '@mui/material';
-import { Formik, Form, Field } from 'formik';
-import * as Yup from 'yup';
-import { ExamStatus } from '../models/types';
 
 const ExamsList = () => {
     const [exams, setExams] = useState([]);
     const [courses, setCourses] = useState([]);
     const [open, setOpen] = useState(false);
-    const [editingExam, setEditingExam] = useState(null);
-    const [error, setError] = useState(null);
-    const { addDocument, updateDocument, deleteDocument, loading } = useDatabase();
+    const [selectedExam, setSelectedExam] = useState(null);
+    const [isEdit, setIsEdit] = useState(false);
+    const [errors, setErrors] = useState({});
+    const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+    const [newExam, setNewExam] = useState({
+        courseCode: '',
+        examType: '',
+        examDate: '',
+        startTime: '',
+        endTime: '',
+        duration: '',
+        room: '',
+        status: 'active',
+    });
 
     useEffect(() => {
-        // Fetch exams
-        const examQuery = query(collection(db, COLLECTIONS.EXAMS));
-        const unsubscribeExams = onSnapshot(examQuery, (snapshot) => {
-            setExams(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        const examsQuery = query(collection(db, 'exams'));
+        const unsubscribe = onSnapshot(examsQuery, (snapshot) => {
+            const examsData = snapshot.docs.map(doc => {
+                const data = doc.data();
+                return {
+                    id: doc.id,
+                    ...data,
+                    createdAt: data.createdAt?.toDate?.() || null,
+                    updatedAt: data.updatedAt?.toDate?.() || null,
+                };
+            });
+            setExams(examsData);
         });
-
-        // Fetch courses for courseId dropdown
-        const courseQuery = query(collection(db, COLLECTIONS.COURSES));
-        const unsubscribeCourses = onSnapshot(courseQuery, (snapshot) => {
-            setCourses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        });
-
-        return () => {
-            unsubscribeExams();
-            unsubscribeCourses();
-        };
+        return () => unsubscribe();
     }, []);
 
-    const handleOpen = (exam = null) => {
-        setEditingExam(exam);
+    useEffect(() => {
+        const coursesQuery = query(collection(db, 'courses'));
+        const unsubscribe = onSnapshot(coursesQuery, (snapshot) => {
+            setCourses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        });
+        return () => unsubscribe();
+    }, []);
+
+    // Helper function to add hours to time string
+    const addHoursToTime = (timeString, hours) => {
+        const [hourStr, minuteStr] = timeString.split(':');
+        const totalMinutes = parseInt(hourStr) * 60 + parseInt(minuteStr) + (hours * 60);
+        const newHour = Math.floor(totalMinutes / 60) % 24;
+        const newMinute = totalMinutes % 60;
+        return `${newHour.toString().padStart(2, '0')}:${newMinute.toString().padStart(2, '0')}`;
+    };
+
+    // Auto-calculate end time when start time or duration changes
+    useEffect(() => {
+        if (newExam.startTime && newExam.duration) {
+            const calculatedEndTime = addHoursToTime(newExam.startTime, parseFloat(newExam.duration));
+            setNewExam(prev => ({ ...prev, endTime: calculatedEndTime }));
+        }
+    }, [newExam.startTime, newExam.duration]);
+
+    const validateExam = (exam) => {
+        const newErrors = {};
+
+        if (!exam.courseCode) newErrors.courseCode = 'Course is required';
+        if (!exam.examType) newErrors.examType = 'Exam type is required';
+        if (!exam.examDate) newErrors.examDate = 'Exam date is required';
+        if (!exam.startTime) newErrors.startTime = 'Start time is required';
+        if (!exam.endTime) newErrors.endTime = 'End time is required';
+        if (!exam.duration || exam.duration <= 0) newErrors.duration = 'Duration must be greater than 0';
+        if (!exam.room.trim()) newErrors.room = 'Room is required';
+        if (!exam.status) newErrors.status = 'Status is required';
+
+        // Validate exam date is not in the past
+        const examDate = new Date(exam.examDate);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        if (examDate < today) {
+            newErrors.examDate = 'Exam date cannot be in the past';
+        }
+
+        // Validate start time and duration consistency
+        if (exam.startTime && exam.duration) {
+            const calculatedEndTime = addHoursToTime(exam.startTime, parseFloat(exam.duration));
+            if (exam.endTime !== calculatedEndTime) {
+                newErrors.endTime = `End time should be ${calculatedEndTime} based on start time and duration`;
+            }
+        }
+
+        // Validate duration is reasonable (0.5 to 8 hours)
+        const duration = parseFloat(exam.duration);
+        if (duration < 0.5 || duration > 8) {
+            newErrors.duration = 'Duration must be between 0.5 and 8 hours';
+        }
+
+        // Validate exam doesn't span midnight unreasonably
+        if (exam.startTime && exam.endTime) {
+            const start = new Date(`1970-01-01T${exam.startTime}`);
+            const end = new Date(`1970-01-01T${exam.endTime}`);
+            if (end < start) {
+                newErrors.endTime = 'Exam cannot span past midnight';
+            }
+        }
+
+        setErrors(newErrors);
+        return Object.keys(newErrors).length === 0;
+    };
+
+    const showSnackbar = (message, severity = 'success') => {
+        setSnackbar({ open: true, message, severity });
+    };
+
+    const handleOpen = (exam) => {
+        setSelectedExam(exam);
+        setIsEdit(true);
+        setNewExam({
+            courseCode: exam.courseCode || '',
+            examType: exam.examType || '',
+            examDate: exam.examDate || '',
+            startTime: exam.startTime || '',
+            endTime: exam.endTime || '',
+            duration: exam.duration || '',
+            room: exam.room || '',
+            status: exam.status || 'active',
+        });
         setOpen(true);
-        setError(null);
+        setErrors({});
     };
 
     const handleClose = () => {
         setOpen(false);
-        setEditingExam(null);
-        setError(null);
+        setIsEdit(false);
+        setSelectedExam(null);
+        setNewExam({
+            courseCode: '',
+            examType: '',
+            examDate: '',
+            startTime: '',
+            endTime: '',
+            duration: '',
+            room: '',
+            status: 'active',
+        });
+        setErrors({});
     };
 
-    const handleSubmit = async (values) => {
+    const handleCreate = async () => {
+        if (!validateExam(newExam)) {
+            showSnackbar('Please fix validation errors', 'error');
+            return;
+        }
+
         try {
-            // Calculate duration if startTime and endTime are provided
-            let duration = values.duration;
-            if (values.startTime && values.endTime) {
-                const start = new Date(`1970-01-01T${values.startTime}:00`);
-                const end = new Date(`1970-01-01T${values.endTime}:00`);
-                duration = Math.round((end - start) / 60000); // Convert ms to minutes
-            }
-
-            const examData = {
-                ...values,
-                duration: duration || 0,
+            const docRef = doc(collection(db, 'exams'));
+            const newExamData = {
+                ...newExam,
+                duration: parseFloat(newExam.duration),
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
             };
-
-            if (editingExam) {
-                await updateDocument(COLLECTIONS.EXAMS, editingExam.id, examData);
-            } else {
-                await addDocument(COLLECTIONS.EXAMS, {
-                    ...examData,
-                    createdAt: new Date().toISOString(),
-                });
-            }
+            await setDoc(docRef, newExamData);
             handleClose();
-        } catch (err) {
-            setError(err.message);
+            showSnackbar('Exam created successfully');
+        } catch (error) {
+            console.error('Error creating exam:', error);
+            showSnackbar('Error creating exam', 'error');
+        }
+    };
+
+    const handleUpdate = async () => {
+        if (!validateExam(newExam)) {
+            showSnackbar('Please fix validation errors', 'error');
+            return;
+        }
+
+        try {
+            const docRef = doc(db, 'exams', selectedExam.id);
+            const updatedExamData = {
+                ...newExam,
+                duration: parseFloat(newExam.duration),
+                updatedAt: serverTimestamp(),
+            };
+            await updateDoc(docRef, updatedExamData);
+            handleClose();
+            showSnackbar('Exam updated successfully');
+        } catch (error) {
+            console.error('Error updating exam:', error);
+            showSnackbar('Error updating exam', 'error');
         }
     };
 
     const handleDelete = async (id) => {
+        if (!window.confirm('Are you sure you want to delete this exam?')) return;
+
         try {
-            await deleteDocument(COLLECTIONS.EXAMS, id);
-        } catch (err) {
-            setError(err.message);
+            const docRef = doc(db, 'exams', id);
+            await deleteDoc(docRef);
+            showSnackbar('Exam deleted successfully');
+        } catch (error) {
+            console.error('Error deleting exam:', error);
+            showSnackbar('Error deleting exam', 'error');
         }
     };
 
-    const validationSchema = Yup.object({
-        examName: Yup.string().required('Required'),
-        courseId: Yup.string().required('Required'),
-        examDate: Yup.string().matches(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD').required('Required'),
-        startTime: Yup.string().matches(/^\d{2}:\d{2}$/, 'Time must be HH:MM').required('Required'),
-        endTime: Yup.string().matches(/^\d{2}:\d{2}$/, 'Time must be HH:MM').required('Required'),
-        duration: Yup.number().min(0, 'Duration must be non-negative').optional(),
-        location: Yup.string().required('Required'),
-        status: Yup.string().oneOf([ExamStatus.ACTIVE, ExamStatus.COMPLETED, ExamStatus.CANCELLED]).required('Required'),
-    });
+    const getCourseNameById = (courseId) => {
+        const course = courses.find(c => c.id === courseId);
+        return course ? `${course.courseName} - ${course.courseCode}` : 'Unknown Course';
+    };
 
     const columns = [
-        { field: 'examName', headerName: 'Exam Name', width: 150 },
         {
-            field: 'courseId',
+            field: 'courseCode',
             headerName: 'Course',
-            width: 120,
-            valueGetter: (params) => {
-                const course = courses.find(c => c.id === params.value);
-                return course ? course.courseCode : params.value || 'N/A';
-            },
+            flex: 1,
+            minWidth: 200,
+            valueGetter: (params) => getCourseNameById(params)
         },
-        { field: 'examDate', headerName: 'Date', width: 120 },
-        { field: 'startTime', headerName: 'Start Time', width: 100 },
-        { field: 'endTime', headerName: 'End Time', width: 100 },
-        { field: 'duration', headerName: 'Duration (min)', width: 100 },
-        { field: 'location', headerName: 'Location', width: 120 },
-        { field: 'status', headerName: 'Status', width: 100 },
-        { field: 'createdAt', headerName: 'Created At', width: 180 },
+        {
+            field: 'examType',
+            headerName: 'Type',
+            width: 120,
+        },
+        {
+            field: 'examDate',
+            headerName: 'Date',
+            width: 110,
+            valueGetter: (params) => {
+                return params ? new Date(params).toLocaleDateString() : '';
+            }
+        },
+        { field: 'startTime', headerName: 'Start', width: 80 },
+        { field: 'endTime', headerName: 'End', width: 80 },
+        {
+            field: 'duration',
+            headerName: 'Duration',
+            width: 90,
+            type: 'number',
+            valueFormatter: (params) => `${params}h`
+        },
+        { field: 'room', headerName: 'Room', width: 90 },
+        {
+            field: 'status',
+            headerName: 'Status',
+            width: 100,
+            renderCell: (params) => (
+                <span style={{
+                    color: params.value === 'active' ? '#2e7d32' :
+                        params.value === 'completed' ? '#1976d2' :
+                            params.value === 'cancelled' ? '#d32f2f' : '#f57c00',
+                    fontWeight: 500,
+                    fontSize: '0.875rem'
+                }}>
+                    {params.value}
+                </span>
+            )
+        },
         {
             field: 'actions',
             headerName: 'Actions',
-            width: 150,
+            width: 140,
+            sortable: false,
             renderCell: (params) => (
-                <>
-                    <Button onClick={() => handleOpen(params.row)}>Edit</Button>
-                    <Button onClick={() => handleDelete(params.id)} color="error">Delete</Button>
-                </>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => handleOpen(params.row)}
+                        sx={{ minWidth: 'auto', px: 1 }}
+                    >
+                        Edit
+                    </Button>
+                    <Button
+                        size="small"
+                        variant="outlined"
+                        color="error"
+                        onClick={() => handleDelete(params.row.id)}
+                        sx={{ minWidth: 'auto', px: 1 }}
+                    >
+                        Del
+                    </Button>
+                </Box>
             ),
         },
     ];
 
     return (
-        <Box sx={{ p: 3 }}>
-            <Typography variant="h4" gutterBottom>Exams</Typography>
-            <Button
-                variant="contained"
-                onClick={() => handleOpen()}
-                sx={{ mb: 2 }}
-            >
-                Add Exam
-            </Button>
-            {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-            <div style={{ height: 400, width: '100%' }}>
+        <Box sx={{ p: 3, height: '100vh', display: 'flex', flexDirection: 'column' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                <Typography variant="h4">Exams Management</Typography>
+                <Button
+                    variant="contained"
+                    onClick={() => setOpen(true)}
+                >
+                    Create New Exam
+                </Button>
+            </Box>
+
+            <Box sx={{ flexGrow: 1, minHeight: 0 }}>
                 <DataGrid
                     rows={exams}
                     columns={columns}
-                    pageSize={5}
-                    rowsPerPageOptions={[5]}
-                    disableSelectionOnClick
-                    loading={loading}
-                />
-            </div>
-
-            <Dialog open={open} onClose={handleClose}>
-                <DialogTitle>{editingExam ? 'Edit Exam' : 'Add Exam'}</DialogTitle>
-                <Formik
-                    initialValues={
-                        editingExam || {
-                            examName: '',
-                            courseId: '',
-                            examDate: '',
-                            startTime: '',
-                            endTime: '',
-                            duration: '',
-                            location: '',
-                            status: ExamStatus.ACTIVE,
+                    initialState={{
+                        pagination: {
+                            paginationModel: { pageSize: 25 }
                         }
-                    }
-                    validationSchema={validationSchema}
-                    onSubmit={handleSubmit}
-                >
-                    {({ errors, touched, values, setFieldValue }) => (
-                        <Form>
-                            <DialogContent>
-                                <Field
-                                    as={TextField}
-                                    name="examName"
-                                    label="Exam Name"
-                                    fullWidth
-                                    margin="normal"
-                                    error={touched.examName && !!errors.examName}
-                                    helperText={touched.examName && errors.examName}
-                                />
-                                <FormControl fullWidth margin="normal">
-                                    <InputLabel>Course</InputLabel>
-                                    <Field
-                                        as={Select}
-                                        name="courseId"
-                                        value={values.courseId}
-                                        onChange={(e) => setFieldValue('courseId', e.target.value)}
-                                        error={touched.courseId && !!errors.courseId}
-                                    >
-                                        {courses.map(course => (
-                                            <MenuItem key={course.id} value={course.id}>
-                                                {course.courseCode}
-                                            </MenuItem>
-                                        ))}
-                                    </Field>
-                                </FormControl>
-                                <Field
-                                    as={TextField}
-                                    name="examDate"
-                                    label="Exam Date (YYYY-MM-DD)"
-                                    fullWidth
-                                    margin="normal"
-                                    error={touched.examDate && !!errors.examDate}
-                                    helperText={touched.examDate && errors.examDate}
-                                />
-                                <Field
-                                    as={TextField}
-                                    name="startTime"
-                                    label="Start Time (HH:MM)"
-                                    fullWidth
-                                    margin="normal"
-                                    error={touched.startTime && !!errors.startTime}
-                                    helperText={touched.startTime && errors.startTime}
-                                />
-                                <Field
-                                    as={TextField}
-                                    name="endTime"
-                                    label="End Time (HH:MM)"
-                                    fullWidth
-                                    margin="normal"
-                                    error={touched.endTime && !!errors.endTime}
-                                    helperText={touched.endTime && errors.endTime}
-                                />
-                                <Field
-                                    as={TextField}
-                                    name="duration"
-                                    label="Duration (minutes)"
-                                    type="number"
-                                    fullWidth
-                                    margin="normal"
-                                    error={touched.duration && !!errors.duration}
-                                    helperText={touched.duration && errors.duration}
-                                />
-                                <Field
-                                    as={TextField}
-                                    name="location"
-                                    label="Location"
-                                    fullWidth
-                                    margin="normal"
-                                    error={touched.location && !!errors.location}
-                                    helperText={touched.location && errors.location}
-                                />
-                                <FormControl fullWidth margin="normal">
-                                    <InputLabel>Status</InputLabel>
-                                    <Field
-                                        as={Select}
-                                        name="status"
-                                        value={values.status}
-                                        onChange={(e) => setFieldValue('status', e.target.value)}
-                                        error={touched.status && !!errors.status}
-                                    >
-                                        <MenuItem value={ExamStatus.ACTIVE}>Active</MenuItem>
-                                        <MenuItem value={ExamStatus.COMPLETED}>Completed</MenuItem>
-                                        <MenuItem value={ExamStatus.CANCELLED}>Cancelled</MenuItem>
-                                    </Field>
-                                </FormControl>
-                                {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
-                            </DialogContent>
-                            <DialogActions>
-                                <Button onClick={handleClose} disabled={loading}>Cancel</Button>
-                                <Button type="submit" variant="contained" disabled={loading}>
-                                    {loading ? 'Saving...' : 'Save'}
-                                </Button>
-                            </DialogActions>
-                        </Form>
-                    )}
-                </Formik>
+                    }}
+                    pageSizeOptions={[10, 25, 50, 100]}
+                    disableRowSelectionOnClick
+                    loading={false}
+                    density="compact"
+                    sx={{
+                        '& .MuiDataGrid-cell': {
+                            fontSize: '0.875rem'
+                        },
+                        '& .MuiDataGrid-columnHeader': {
+                            fontSize: '0.875rem',
+                            fontWeight: 600
+                        }
+                    }}
+                />
+            </Box>
+
+            <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+                <DialogTitle>{isEdit ? 'Edit Exam' : 'Create New Exam'}</DialogTitle>
+                <DialogContent>
+                    <FormControl fullWidth margin="normal" error={!!errors.courseCode}>
+                        <InputLabel>Course *</InputLabel>
+                        <Select
+                            value={newExam.courseCode}
+                            onChange={(e) => setNewExam({ ...newExam, courseCode: e.target.value })}
+                            label="Course *"
+                        >
+                            {courses.map((course) => (
+                                <MenuItem key={course.id} value={course.id}>
+                                    {course.courseName} ({course.courseCode})
+                                </MenuItem>
+                            ))}
+                        </Select>
+                        {errors.courseCode && <Typography variant="caption" color="error">{errors.courseCode}</Typography>}
+                    </FormControl>
+
+                    <FormControl fullWidth margin="normal" error={!!errors.examType}>
+                        <InputLabel>Exam Type *</InputLabel>
+                        <Select
+                            value={newExam.examType}
+                            onChange={(e) => setNewExam({ ...newExam, examType: e.target.value })}
+                            label="Exam Type *"
+                        >
+                            <MenuItem value="Midterm Exam">Midterm Exam</MenuItem>
+                            <MenuItem value="Final Exam">Final Exam</MenuItem>
+                            <MenuItem value="Quiz">Quiz</MenuItem>
+                            <MenuItem value="Assignment">Assignment</MenuItem>
+                        </Select>
+                        {errors.examType && <Typography variant="caption" color="error">{errors.examType}</Typography>}
+                    </FormControl>
+
+                    <TextField
+                        label="Exam Date *"
+                        value={newExam.examDate}
+                        onChange={(e) => setNewExam({ ...newExam, examDate: e.target.value })}
+                        fullWidth
+                        margin="normal"
+                        type="date"
+                        InputLabelProps={{ shrink: true }}
+                        error={!!errors.examDate}
+                        helperText={errors.examDate}
+                        inputProps={{
+                            min: new Date().toISOString().split('T')[0]
+                        }}
+                    />
+
+                    <TextField
+                        label="Start Time *"
+                        value={newExam.startTime}
+                        onChange={(e) => setNewExam({ ...newExam, startTime: e.target.value })}
+                        fullWidth
+                        margin="normal"
+                        type="time"
+                        InputLabelProps={{ shrink: true }}
+                        error={!!errors.startTime}
+                        helperText={errors.startTime}
+                    />
+
+                    <TextField
+                        label="Duration (hours) *"
+                        value={newExam.duration}
+                        onChange={(e) => setNewExam({ ...newExam, duration: e.target.value })}
+                        fullWidth
+                        margin="normal"
+                        type="number"
+                        inputProps={{ min: 0.5, max: 8, step: 0.5 }}
+                        error={!!errors.duration}
+                        helperText={errors.duration || 'End time will be calculated automatically'}
+                    />
+
+                    <TextField
+                        label="End Time *"
+                        value={newExam.endTime}
+                        onChange={(e) => setNewExam({ ...newExam, endTime: e.target.value })}
+                        fullWidth
+                        margin="normal"
+                        type="time"
+                        InputLabelProps={{ shrink: true }}
+                        error={!!errors.endTime}
+                        helperText={errors.endTime || 'Auto-calculated based on start time + duration'}
+                        InputProps={{
+                            style: { backgroundColor: '#f5f5f5' }
+                        }}
+                        disabled
+                    />
+
+                    <TextField
+                        label="Room *"
+                        value={newExam.room}
+                        onChange={(e) => setNewExam({ ...newExam, room: e.target.value })}
+                        fullWidth
+                        margin="normal"
+                        error={!!errors.room}
+                        helperText={errors.room}
+                    />
+
+                    <FormControl fullWidth margin="normal" error={!!errors.status}>
+                        <InputLabel>Status *</InputLabel>
+                        <Select
+                            value={newExam.status}
+                            onChange={(e) => setNewExam({ ...newExam, status: e.target.value })}
+                            label="Status *"
+                        >
+                            <MenuItem value="active">Active</MenuItem>
+                            <MenuItem value="completed">Completed</MenuItem>
+                            <MenuItem value="cancelled">Cancelled</MenuItem>
+                            <MenuItem value="postponed">Postponed</MenuItem>
+                        </Select>
+                        {errors.status && <Typography variant="caption" color="error">{errors.status}</Typography>}
+                    </FormControl>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={handleClose}>Cancel</Button>
+                    <Button
+                        variant="contained"
+                        onClick={isEdit ? handleUpdate : handleCreate}
+                    >
+                        {isEdit ? 'Update' : 'Create'}
+                    </Button>
+                </DialogActions>
             </Dialog>
+
+            <Snackbar
+                open={snackbar.open}
+                autoHideDuration={6000}
+                onClose={() => setSnackbar({ ...snackbar, open: false })}
+            >
+                <Alert
+                    onClose={() => setSnackbar({ ...snackbar, open: false })}
+                    severity={snackbar.severity}
+                >
+                    {snackbar.message}
+                </Alert>
+            </Snackbar>
         </Box>
     );
 };

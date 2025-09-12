@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useDatabase } from '../hooks/useDatabase';
-import { AttendanceStatus } from '../models/types';
 import { db, COLLECTIONS } from '../config/firebase';
 import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore';
 import { Box, TextField, Button, Typography, Select, MenuItem, FormControl, InputLabel, Alert } from '@mui/material';

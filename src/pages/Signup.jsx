@@ -8,10 +8,6 @@ import {
     Alert,
     Box,
     Typography,
-    FormControl,
-    InputLabel,
-    Select,
-    MenuItem,
     Link
 } from '@mui/material';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
@@ -22,8 +18,7 @@ const Signup = () => {
         name: '',
         email: '',
         password: '',
-        confirmPassword: '',
-        role: 'lecture'
+        confirmPassword: ''
     });
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
@@ -103,7 +98,7 @@ const Signup = () => {
         setError('');
 
         try {
-            const { name, email, password, role } = formData;
+            const { name, email, password } = formData;
 
             // Create user account
             const userCredential = await createUserWithEmailAndPassword(
@@ -122,7 +117,7 @@ const Signup = () => {
             await setDoc(doc(db, 'users', user.uid), {
                 name: name.trim(),
                 email: email.trim(),
-                role,
+                role: 'lecturer',
                 createdAt: new Date(),
                 emailVerified: user.emailVerified
             });
@@ -219,20 +214,6 @@ const Signup = () => {
                 autoComplete="new-password"
                 disabled={loading}
             />
-
-            <FormControl fullWidth margin="normal" required>
-                <InputLabel>Role</InputLabel>
-                <Select
-                    name="role"
-                    value={formData.role}
-                    onChange={handleInputChange}
-                    label="Role"
-                    disabled={loading}
-                >
-                    <MenuItem value="lecture">Lecturer</MenuItem>
-                    <MenuItem value="admin">Admin</MenuItem>
-                </Select>
-            </FormControl>
 
             <Button
                 type="submit"

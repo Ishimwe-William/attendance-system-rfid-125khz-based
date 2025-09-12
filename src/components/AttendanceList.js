@@ -28,6 +28,7 @@ const AttendanceList = () => {
     const isAdmin = user?.role === 'admin';
     const [attendance, setAttendance] = useState([]);
     const [exams, setExams] = useState([]);
+    const [courses, setCourses] = useState([]);
     const [students, setStudents] = useState([]);
     const [devices, setDevices] = useState([]);
     const [examSettings, setExamSettings] = useState(null);
@@ -47,6 +48,12 @@ const AttendanceList = () => {
         const examQuery = query(collection(db, COLLECTIONS.EXAMS));
         const unsubscribeExams = onSnapshot(examQuery, (snapshot) => {
             setExams(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        });
+
+        // Fetch course
+        const courseQuery = query(collection(db, COLLECTIONS.COURSES));
+        const unsubscribeCourse = onSnapshot(courseQuery, (snapshot) => {
+            setCourses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         });
 
         // Fetch students
@@ -72,6 +79,7 @@ const AttendanceList = () => {
         return () => {
             unsubscribeAttendance();
             unsubscribeExams();
+            unsubscribeCourse();
             unsubscribeStudents();
             unsubscribeDevices();
             unsubscribeExamSettings();
@@ -80,6 +88,10 @@ const AttendanceList = () => {
 
     const handleOpen = (record = null) => {
         if (!isAdmin) return;
+        if (record && !record.rfidTag) {
+            setError('Cannot edit card recorded attendance.');
+            return;
+        }
         setEditingAttendance(record);
         setOpen(true);
         setError(null);
@@ -121,10 +133,11 @@ const AttendanceList = () => {
         }
     };
 
-    const handleDelete = async (id) => {
+    const handleDelete = async (row) => {
         try {
             if (!isAdmin) throw new Error('Unauthorized');
-            await deleteDocument(COLLECTIONS.ATTENDANCE, id);
+            if (!row.rfidTag) throw new Error('Cannot delete card recorded attendance.');
+            await deleteDocument(COLLECTIONS.ATTENDANCE, row.id);
         } catch (err) {
             setError(err.message);
         }
@@ -141,49 +154,156 @@ const AttendanceList = () => {
         emailSent: Yup.boolean().required('Required'),
     });
 
+    const getCheckInDate = (row) => {
+        if (row.checkInEpochTime) {
+            return new Date(row.checkInEpochTime * 1000);
+        } else if (row.checkInTime) {
+            if (row.checkInTime.includes('T')) {
+                return new Date(row.checkInTime);
+            } else {
+                const examId = row.examId || row.currentExam;
+                const exam = exams.find(e => e.id === examId);
+                if (exam && exam.examDate) {
+                    return new Date(`${exam.examDate}T${row.checkInTime}`);
+                }
+            }
+        }
+        return null;
+    };
+
+    const getCheckOutDate = (row) => {
+        if (row.checkOutEpochTime) {
+            return new Date(row.checkOutEpochTime * 1000);
+        } else if (row.checkOutTime) {
+            if (row.checkOutTime.includes('T')) {
+                return new Date(row.checkOutTime);
+            } else {
+                const examId = row.examId || row.currentExam;
+                const exam = exams.find(e => e.id === examId);
+                if (exam && exam.examDate) {
+                    return new Date(`${exam.examDate}T${row.checkOutTime}`);
+                }
+            }
+        }
+        return null;
+    };
+
     const columns = [
         {
-            field: 'examId',
+            field: 'exam',
             headerName: 'Exam',
             width: 150,
-            valueGetter: (params) => {
-                const exam = exams.find(e => e.id === params.value);
-                return exam ? exam.examName : params.value || 'N/A';
+            valueGetter: (value, row) => {
+                const examId = row.currentExam;
+                const exam = exams.find(e => e.id === examId);
+                const course = courses.find(e => e.id === exam.courseCode)
+                return course ? course.courseName : 'N/A';
             },
         },
         {
-            field: 'studentId',
+            field: 'student',
             headerName: 'Student',
             width: 150,
-            valueGetter: (params) => {
-                const student = students.find(s => s.id === params.value);
-                return student ? student.name : params.value || 'N/A';
+            valueGetter: (value, row) => {
+                let student;
+                if (row.rfidTag) {
+                    student = students.find(s => s.id === row.studentId);
+                } else {
+                    student = students.find(s => s.rfidTag === row.studentId);
+                }
+                return student ? student.name : row.studentId || 'N/A';
             },
         },
-        { field: 'rfidTag', headerName: 'RFID Tag', width: 120 },
-        { field: 'checkInTime', headerName: 'Check-In', width: 150 },
-        { field: 'checkOutTime', headerName: 'Check-Out', width: 150 },
-        { field: 'status', headerName: 'Status', width: 100 },
+        {
+            field: 'rfid',
+            headerName: 'RFID Tag',
+            width: 120,
+            valueGetter: (value, row) => row.rfidTag || row.studentId,
+        },
+        {
+            field: 'checkIn',
+            headerName: 'Check-In',
+            type: 'dateTime',
+            width: 150,
+            valueGetter: (value, row) => getCheckInDate(row),
+            renderCell: (params) => {
+                if (params.value) {
+                    return params.value.toLocaleTimeString('en-US', { timeZone: 'Africa/Accra' });
+                }
+                return '';
+            },
+        },
+        {
+            field: 'checkOut',
+            headerName: 'Check-Out',
+            type: 'dateTime',
+            width: 150,
+            valueGetter: (value, row) => getCheckOutDate(row),
+            renderCell: (params) => {
+                if (params.value) {
+                    return params.value.toLocaleTimeString('en-US', { timeZone: 'Africa/Accra' });
+                }
+                return '';
+            },
+        },
+        {
+            field: 'status',
+            headerName: 'Status',
+            width: 100,
+            valueGetter: (value, row) => {
+                if (row.status) {
+                    return row.status;
+                }
+                const examId = row.examId || row.currentExam;
+                const exam = exams.find(e => e.id === examId);
+                const checkInStr = row.checkInTime;
+                if (checkInStr && exam && examSettings?.allowLateEntry) {
+                    let checkIn;
+                    if (checkInStr.includes('T')) {
+                        checkIn = new Date(checkInStr);
+                    } else {
+                        checkIn = new Date(`${exam.examDate}T${checkInStr}`);
+                    }
+                    const examStart = new Date(`${exam.examDate}T${exam.startTime}`);
+                    const gracePeriodMs = examSettings.lateEntryGracePeriod * 60 * 1000;
+                    if (checkIn > new Date(examStart.getTime() + gracePeriodMs)) {
+                        return AttendanceStatus.LATE;
+                    }
+                }
+                return checkInStr ? AttendanceStatus.PRESENT : AttendanceStatus.ABSENT;
+            },
+        },
         {
             field: 'deviceId',
             headerName: 'Device',
             width: 150,
-            valueGetter: (params) => {
-                const device = devices.find(d => d.id === params.value);
-                return device ? device.deviceName : params.value || 'N/A';
+            valueGetter: (value, row) => {
+                const device = devices.find(d => d.id === value);
+                return device ? device.deviceName : row.deviceName || value || 'N/A';
             },
+        },
+        {
+            field: 'examRoom',
+            headerName: 'Exam Room',
+            width: 100,
         },
         { field: 'emailSent', headerName: 'Email Sent', width: 100, type: 'boolean' },
         {
             field: 'actions',
             headerName: 'Actions',
             width: 150,
-            renderCell: (params) => (
-                <>
-                    <Button onClick={() => handleOpen(params.row)} disabled={!isAdmin}>Edit</Button>
-                    <Button onClick={() => handleDelete(params.id)} color="error" disabled={!isAdmin}>Delete</Button>
-                </>
-            ),
+            renderCell: (params) => {
+                if (!isAdmin) return null;
+                if (!params.row.rfidTag) {
+                    return <Typography color="textSecondary">Device Recorded</Typography>;
+                }
+                return (
+                    <>
+                        <Button onClick={() => handleOpen(params.row)} disabled={!isAdmin}>Edit</Button>
+                        <Button onClick={() => handleDelete(params.row)} color="error" disabled={!isAdmin}>Delete</Button>
+                    </>
+                );
+            },
         },
     ];
 

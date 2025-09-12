@@ -1,232 +1,345 @@
 import React, { useState, useEffect } from 'react';
-import { collection, onSnapshot, query, getDocs, where, updateDoc } from 'firebase/firestore';
-import { db, COLLECTIONS } from '../config/firebase';
-import { useDatabase } from '../hooks/useDatabase';
-import { DataGrid } from '@mui/x-data-grid';
 import {
+    Box,
     Button,
     Dialog,
     DialogTitle,
     DialogContent,
     DialogActions,
     TextField,
-    FormControl,
-    InputLabel,
-    Select,
-    MenuItem,
-    Alert,
-    Box,
+    Table,
+    TableBody,
+    TableCell,
+    TableContainer,
+    TableHead,
+    TableRow,
+    Paper,
+    IconButton,
     Typography,
+    Alert,
+    Snackbar,
+    CircularProgress,
     Chip
 } from '@mui/material';
-import { Formik, Form, Field } from 'formik';
-import * as Yup from 'yup';
+import {
+    Add,
+    Edit,
+    Delete,
+    Search
+} from '@mui/icons-material';
+import {
+    collection,
+    getDocs,
+    addDoc,
+    updateDoc,
+    deleteDoc,
+    doc,
+    query,
+    orderBy,
+    where
+} from 'firebase/firestore';
+import { db } from '../config/firebase';
 
 const LecturersList = () => {
     const [lecturers, setLecturers] = useState([]);
     const [courses, setCourses] = useState([]);
-    const [open, setOpen] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
+    const [searchTerm, setSearchTerm] = useState('');
+    const [dialogOpen, setDialogOpen] = useState(false);
     const [editingLecturer, setEditingLecturer] = useState(null);
-    const [error, setError] = useState(null);
-    const { addDocument, updateDocument, deleteDocument, loading } = useDatabase();
+    const [formData, setFormData] = useState({
+        name: '',
+        email: ''
+    });
+    const [formErrors, setFormErrors] = useState({});
+
+    const fetchLecturers = async () => {
+        try {
+            setLoading(true);
+            setError('');
+
+            const lecturersRef = collection(db, 'lecturers');
+            const q = query(lecturersRef, orderBy('name'));
+            const querySnapshot = await getDocs(q);
+
+            const lecturersData = [];
+            querySnapshot.forEach((doc) => {
+                lecturersData.push({
+                    id: doc.id,
+                    ...doc.data()
+                });
+            });
+
+            setLecturers(lecturersData);
+        } catch (error) {
+            console.error('Error fetching lecturers:', error);
+            setError('Failed to load lecturers');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const fetchCourses = async () => {
+        try {
+            const coursesRef = collection(db, 'courses');
+            const querySnapshot = await getDocs(coursesRef);
+
+            const coursesData = [];
+            querySnapshot.forEach((doc) => {
+                coursesData.push({
+                    id: doc.id,
+                    ...doc.data()
+                });
+            });
+
+            setCourses(coursesData);
+        } catch (error) {
+            console.error('Error fetching courses:', error);
+        }
+    };
 
     useEffect(() => {
-        // Fetch lecturers
-        const lecturerQuery = query(collection(db, COLLECTIONS.LECTURERS));
-        const unsubscribeLecturers = onSnapshot(lecturerQuery, (snapshot) => {
-            setLecturers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        });
-
-        // Fetch courses for assignedCourses dropdown
-        const courseQuery = query(collection(db, COLLECTIONS.COURSES));
-        const unsubscribeCourses = onSnapshot(courseQuery, (snapshot) => {
-            setCourses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        });
-
-        return () => {
-            unsubscribeLecturers();
-            unsubscribeCourses();
-        };
+        fetchLecturers();
+        fetchCourses();
     }, []);
 
-    const handleOpen = (lecturer = null) => {
-        setEditingLecturer(lecturer);
-        setOpen(true);
-        setError(null);
+    const validateForm = () => {
+        const errors = {};
+
+        if (!formData.name.trim()) {
+            errors.name = 'Name is required';
+        }
+
+        if (!formData.email.trim()) {
+            errors.email = 'Email is required';
+        } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+            errors.email = 'Invalid email format';
+        }
+
+        setFormErrors(errors);
+        return Object.keys(errors).length === 0;
     };
 
-    const handleClose = () => {
-        setOpen(false);
+    const handleAddLecturer = () => {
         setEditingLecturer(null);
-        setError(null);
+        setFormData({ name: '', email: '' });
+        setFormErrors({});
+        setDialogOpen(true);
     };
 
-    const handleSubmit = async (values) => {
+    const handleEditLecturer = (lecturer) => {
+        setEditingLecturer(lecturer);
+        setFormData({
+            name: lecturer.name,
+            email: lecturer.email
+        });
+        setFormErrors({});
+        setDialogOpen(true);
+    };
+
+    const handleSaveLecturer = async () => {
+        if (!validateForm()) return;
+
         try {
+            setError('');
+
+            const lecturerData = {
+                name: formData.name.trim(),
+                email: formData.email.trim()
+            };
+
             if (editingLecturer) {
-                await updateDocument(COLLECTIONS.LECTURERS, editingLecturer.id, values);
+                const lecturerRef = doc(db, 'lecturers', editingLecturer.id);
+                await updateDoc(lecturerRef, lecturerData);
+                setSuccess('Lecturer updated successfully');
             } else {
-                await addDocument(COLLECTIONS.LECTURERS, {
-                    ...values,
-                    createdAt: new Date().toISOString(),
+                await addDoc(collection(db, 'lecturers'), {
+                    ...lecturerData,
+                    createdAt: new Date()
                 });
+                setSuccess('Lecturer added successfully');
             }
-            handleClose();
-        } catch (err) {
-            setError(err.message);
+
+            setDialogOpen(false);
+            fetchLecturers();
+        } catch (error) {
+            console.error('Error saving lecturer:', error);
+            setError('Failed to save lecturer');
         }
     };
 
-    const handleDelete = async (id) => {
+    const handleDeleteLecturer = async (lecturer) => {
+        if (!window.confirm(`Are you sure you want to delete ${lecturer.name}?`)) {
+            return;
+        }
+
         try {
-            // Check if lecturer is referenced by courses
-            const courseQuery = query(collection(db, COLLECTIONS.COURSES), where('lecturerId', '==', id));
-            const courseSnapshot = await getDocs(courseQuery);
-            if (!courseSnapshot.empty) {
-                setError('Cannot delete lecturer: assigned to courses.');
-                return;
-            }
-
-            await deleteDocument(COLLECTIONS.LECTURERS, id);
-        } catch (err) {
-            setError(err.message);
+            setError('');
+            await deleteDoc(doc(db, 'lecturers', lecturer.id));
+            setSuccess('Lecturer deleted successfully');
+            fetchLecturers();
+        } catch (error) {
+            console.error('Error deleting lecturer:', error);
+            setError('Failed to delete lecturer');
         }
     };
 
-    const validationSchema = Yup.object({
-        name: Yup.string().required('Required'),
-        email: Yup.string().email('Invalid email').required('Required'),
-        department: Yup.string().required('Required'),
-        assignedCourses: Yup.array().of(Yup.string()).optional(),
-    });
-
-    const columns = [
-        { field: 'name', headerName: 'Name', width: 150 },
-        { field: 'email', headerName: 'Email', width: 200 },
-        { field: 'department', headerName: 'Department', width: 150 },
-        {
-            field: 'assignedCourses',
-            headerName: 'Courses',
-            width: 150,
-            renderCell: (params) => (
-                <Chip label={params.value.length || 0} color="primary" />
-            ),
-        },
-        { field: 'createdAt', headerName: 'Created At', width: 180 },
-        {
-            field: 'actions',
-            headerName: 'Actions',
-            width: 150,
-            renderCell: (params) => (
-                <>
-                    <Button onClick={() => handleOpen(params.row)}>Edit</Button>
-                    <Button onClick={() => handleDelete(params.id)} color="error">Delete</Button>
-                </>
-            ),
-        },
-    ];
+    const filteredLecturers = lecturers.filter(lecturer =>
+        lecturer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        lecturer.email.toLowerCase().includes(searchTerm.toLowerCase())
+    );
 
     return (
         <Box sx={{ p: 3 }}>
-            <Typography variant="h4" gutterBottom>Lecturers</Typography>
-            <Button
-                variant="contained"
-                onClick={() => handleOpen()}
-                sx={{ mb: 2 }}
-            >
-                Add Lecturer
-            </Button>
-            {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-            <div style={{ height: 400, width: '100%' }}>
-                <DataGrid
-                    rows={lecturers}
-                    columns={columns}
-                    pageSize={5}
-                    rowsPerPageOptions={[5]}
-                    disableSelectionOnClick
-                    loading={loading}
-                />
-            </div>
+            <Typography variant="h4" gutterBottom>
+                Lecturers Management
+            </Typography>
 
-            <Dialog open={open} onClose={handleClose}>
-                <DialogTitle>{editingLecturer ? 'Edit Lecturer' : 'Add Lecturer'}</DialogTitle>
-                <Formik
-                    initialValues={
-                        editingLecturer || {
-                            name: '',
-                            email: '',
-                            department: '',
-                            assignedCourses: [],
-                        }
-                    }
-                    validationSchema={validationSchema}
-                    onSubmit={handleSubmit}
+            {/* Header Actions */}
+            <Box sx={{ mb: 3, display: 'flex', gap: 2, alignItems: 'center' }}>
+                <TextField
+                    placeholder="Search lecturers..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    InputProps={{
+                        startAdornment: <Search sx={{ mr: 1, color: 'text.secondary' }} />
+                    }}
+                    sx={{ flexGrow: 1, maxWidth: 400 }}
+                />
+                <Button
+                    variant="contained"
+                    startIcon={<Add />}
+                    onClick={handleAddLecturer}
                 >
-                    {({ errors, touched, values, setFieldValue }) => (
-                        <Form>
-                            <DialogContent>
-                                <Field
-                                    as={TextField}
-                                    name="name"
-                                    label="Name"
-                                    fullWidth
-                                    margin="normal"
-                                    error={touched.name && !!errors.name}
-                                    helperText={touched.name && errors.name}
-                                />
-                                <Field
-                                    as={TextField}
-                                    name="email"
-                                    label="Email"
-                                    fullWidth
-                                    margin="normal"
-                                    error={touched.email && !!errors.email}
-                                    helperText={touched.email && errors.email}
-                                />
-                                <Field
-                                    as={TextField}
-                                    name="department"
-                                    label="Department"
-                                    fullWidth
-                                    margin="normal"
-                                    error={touched.department && !!errors.department}
-                                    helperText={touched.department && errors.department}
-                                />
-                                <FormControl fullWidth margin="normal">
-                                    <InputLabel>Assigned Courses</InputLabel>
-                                    <Field
-                                        as={Select}
-                                        name="assignedCourses"
-                                        multiple
-                                        value={values.assignedCourses}
-                                        onChange={(e) => setFieldValue('assignedCourses', e.target.value)}
-                                        renderValue={(selected) => (
-                                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                                                {selected.map((value) => (
-                                                    <Chip key={value} label={courses.find(c => c.id === value)?.courseCode || value} />
-                                                ))}
-                                            </Box>
-                                        )}
-                                    >
-                                        {courses.map(course => (
-                                            <MenuItem key={course.id} value={course.id}>
-                                                {course.courseCode}
-                                            </MenuItem>
+                    Add Lecturer
+                </Button>
+            </Box>
+
+            {/* Lecturers Table */}
+            <TableContainer component={Paper}>
+                <Table>
+                    <TableHead>
+                        <TableRow>
+                            <TableCell>Name</TableCell>
+                            <TableCell>Email</TableCell>
+                            <TableCell>Assigned Courses</TableCell>
+                            <TableCell>Created</TableCell>
+                            <TableCell align="right">Actions</TableCell>
+                        </TableRow>
+                    </TableHead>
+                    <TableBody>
+                        {filteredLecturers.length > 0 ? (
+                            filteredLecturers.map((lecturer) => (
+                                <TableRow key={lecturer.id}>
+                                    <TableCell>{lecturer.name}</TableCell>
+                                    <TableCell>{lecturer.email}</TableCell>
+                                    <TableCell>
+                                        {courses.filter(course => course.assignedLecturers?.includes(lecturer.id)).map((course) => (
+                                            <Chip
+                                                key={course.id}
+                                                label={course.courseCode}
+                                                size="small"
+                                                sx={{ mr: 1 }}
+                                            />
                                         ))}
-                                    </Field>
-                                </FormControl>
-                                {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
-                            </DialogContent>
-                            <DialogActions>
-                                <Button onClick={handleClose} disabled={loading}>Cancel</Button>
-                                <Button type="submit" variant="contained" disabled={loading}>
-                                    {loading ? 'Saving...' : 'Save'}
-                                </Button>
-                            </DialogActions>
-                        </Form>
-                    )}
-                </Formik>
+                                    </TableCell>
+                                    <TableCell>
+                                        {lecturer.createdAt?.toDate?.()?.toLocaleDateString() || 'N/A'}
+                                    </TableCell>
+                                    <TableCell align="right">
+                                        <IconButton
+                                            onClick={() => handleEditLecturer(lecturer)}
+                                            color="primary"
+                                            title="Edit Lecturer"
+                                        >
+                                            <Edit />
+                                        </IconButton>
+                                        <IconButton
+                                            onClick={() => handleDeleteLecturer(lecturer)}
+                                            color="error"
+                                            title="Delete Lecturer"
+                                        >
+                                            <Delete />
+                                        </IconButton>
+                                    </TableCell>
+                                </TableRow>
+                            ))
+                        ) : (
+                            <TableRow>
+                                <TableCell colSpan={5} align="center">
+                                    <Typography color="text.secondary">
+                                        {searchTerm ? 'No lecturers found matching your search' : 'No lecturers added yet'}
+                                    </Typography>
+                                </TableCell>
+                            </TableRow>
+                        )}
+                    </TableBody>
+                </Table>
+            </TableContainer>
+
+            {/* Add/Edit Lecturer Dialog */}
+            <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
+                <DialogTitle>
+                    {editingLecturer ? 'Edit Lecturer' : 'Add New Lecturer'}
+                </DialogTitle>
+                <DialogContent>
+                    <TextField
+                        fullWidth
+                        label="Name"
+                        name="name"
+                        value={formData.name}
+                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                        margin="normal"
+                        required
+                        error={!!formErrors.name}
+                        helperText={formErrors.name}
+                    />
+                    <TextField
+                        fullWidth
+                        label="Email"
+                        name="email"
+                        value={formData.email}
+                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                        margin="normal"
+                        required
+                        error={!!formErrors.email}
+                        helperText={formErrors.email}
+                    />
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setDialogOpen(false)}>
+                        Cancel
+                    </Button>
+                    <Button onClick={handleSaveLecturer} variant="contained">
+                        {editingLecturer ? 'Update' : 'Add'} Lecturer
+                    </Button>
+                </DialogActions>
             </Dialog>
+
+            {/* Success/Error Snackbars */}
+            <Snackbar
+                open={!!success}
+                autoHideDuration={4000}
+                onClose={() => setSuccess('')}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+            >
+                <Alert onClose={() => setSuccess('')} severity="success">
+                    {success}
+                </Alert>
+            </Snackbar>
+
+            <Snackbar
+                open={!!error}
+                autoHideDuration={6000}
+                onClose={() => setError('')}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+            >
+                <Alert onClose={() => setError('')} severity="error">
+                    {error}
+                </Alert>
+            </Snackbar>
         </Box>
     );
 };

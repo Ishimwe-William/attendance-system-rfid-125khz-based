@@ -18,7 +18,7 @@ import {
     MenuItem
 } from '@mui/material';
 import { Role } from '../models/types';
-import {DataGrid} from "@mui/x-data-grid";
+import { DataGrid } from "@mui/x-data-grid";
 
 const UsersList = () => {
     const [users, setUsers] = useState([]);
@@ -56,8 +56,8 @@ const UsersList = () => {
             }
 
             // Check if this would remove the last admin
-            if (newRole !== Role.ADMIN) {
-                const adminCount = users.filter(u => u.role === Role.ADMIN && u.id !== editingUser.id).length;
+            if (newRole !== Role?.ADMIN) {
+                const adminCount = users.filter(u => u?.role === Role.ADMIN && u.id !== editingUser.id).length;
                 if (adminCount === 0) {
                     throw new Error('Cannot remove the last admin');
                 }
@@ -73,14 +73,28 @@ const UsersList = () => {
     const columns = [
         { field: 'name', headerName: 'Name', width: 150 },
         { field: 'email', headerName: 'Email', width: 200 },
-        { field: 'role', headerName: 'Role', width: 120 },
-        { field: 'createdAt', headerName: 'Created At', width: 180 },
+        {
+            field: 'role',
+            headerName: 'Role',
+            width: 120,
+            valueGetter: (value) => {
+                return value === Role.ADMIN ? 'Admin' : 'Lecturer';
+            }
+        },
+        {
+            field: 'createdAt',
+            headerName: 'Created At',
+            width: 180,
+            valueGetter: (params) => {
+                return params?.toDate?.()?.toLocaleDateString() || 'N/A';
+            },
+        },
         {
             field: 'actions',
             headerName: 'Actions',
             width: 150,
             renderCell: (params) => (
-                <Button 
+                <Button
                     onClick={() => handleOpen(params.row)}
                     disabled={params.row.id === currentUser.uid}
                 >
@@ -122,6 +136,7 @@ const UsersList = () => {
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={handleClose}>Cancel</Button>
+                    <Button onClick={() => handleUpdateRole(editingUser?.role)}>Save</Button>
                 </DialogActions>
             </Dialog>
         </Box>

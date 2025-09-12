@@ -1,264 +1,539 @@
 import React, { useState, useEffect } from 'react';
-import { collection, onSnapshot, query, getDocs, where, updateDoc, arrayRemove } from 'firebase/firestore';
-import { db, COLLECTIONS } from '../config/firebase';
-import { useDatabase } from '../hooks/useDatabase';
-import { DataGrid } from '@mui/x-data-grid';
 import {
+    Box,
     Button,
     Dialog,
     DialogTitle,
     DialogContent,
     DialogActions,
     TextField,
+    Table,
+    TableBody,
+    TableCell,
+    TableContainer,
+    TableHead,
+    TableRow,
+    Paper,
+    IconButton,
+    Typography,
+    Alert,
+    Snackbar,
+    CircularProgress,
     FormControl,
     InputLabel,
     Select,
+    OutlinedInput,
+    Checkbox,
+    ListItemText,
     MenuItem,
-    Alert,
-    Box,
-    Typography,
     Chip
 } from '@mui/material';
-import { Formik, Form, Field } from 'formik';
-import * as Yup from 'yup';
+import {
+    Add,
+    Edit,
+    Delete,
+    Search
+} from '@mui/icons-material';
+import {
+    collection,
+    getDocs,
+    addDoc,
+    updateDoc,
+    deleteDoc,
+    doc,
+    query,
+    orderBy,
+    where
+} from 'firebase/firestore';
+import { db } from '../config/firebase';
 
 const CoursesList = () => {
     const [courses, setCourses] = useState([]);
-    const [lecturers, setLecturers] = useState([]);
-    const [students, setStudents] = useState([]);
-    const [open, setOpen] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
+    const [searchTerm, setSearchTerm] = useState('');
+    const [dialogOpen, setDialogOpen] = useState(false);
     const [editingCourse, setEditingCourse] = useState(null);
-    const [error, setError] = useState(null);
-    const { addDocument, updateDocument, deleteDocument, loading } = useDatabase();
+    const [formData, setFormData] = useState({
+        courseCode: '',
+        courseName: '',
+        instructor: ''
+    });
+    const [formErrors, setFormErrors] = useState({});
+
+    const [lecturerDialogOpen, setLecturerDialogOpen] = useState(false);
+    const [assigningCourse, setAssigningCourse] = useState(null);
+    const [lecturers, setLecturers] = useState([]);
+    const [selectedLecturers, setSelectedLecturers] = useState([]);
+
+    // Fetch courses from Firestore
+    const fetchCourses = async () => {
+        try {
+            setLoading(true);
+            setError('');
+
+            const coursesRef = collection(db, 'courses');
+            const q = query(coursesRef, orderBy('courseCode'));
+            const querySnapshot = await getDocs(q);
+
+            const coursesData = [];
+            querySnapshot.forEach((doc) => {
+                coursesData.push({
+                    id: doc.id,
+                    ...doc.data()
+                });
+            });
+
+            setCourses(coursesData);
+        } catch (error) {
+            console.error('Error fetching courses:', error);
+            setError('Failed to load courses');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Fetch lecturers from Firestore
+    const fetchLecturers = async () => {
+        try {
+            const lecturersRef = collection(db, 'lecturers');
+            const querySnapshot = await getDocs(lecturersRef);
+
+            const lecturersData = [];
+            querySnapshot.forEach((doc) => {
+                lecturersData.push({
+                    id: doc.id,
+                    ...doc.data()
+                });
+            });
+
+            setLecturers(lecturersData);
+        } catch (error) {
+            console.error('Error fetching lecturers:', error);
+        }
+    };
 
     useEffect(() => {
-        // Fetch courses
-        const courseQuery = query(collection(db, COLLECTIONS.COURSES));
-        const unsubscribeCourses = onSnapshot(courseQuery, (snapshot) => {
-            setCourses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        });
-
-        // Fetch lecturers for lecturerId dropdown
-        const lecturerQuery = query(collection(db, COLLECTIONS.LECTURERS));
-        const unsubscribeLecturers = onSnapshot(lecturerQuery, (snapshot) => {
-            setLecturers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        });
-
-        // Fetch students for students dropdown
-        const studentQuery = query(collection(db, COLLECTIONS.STUDENTS));
-        const unsubscribeStudents = onSnapshot(studentQuery, (snapshot) => {
-            setStudents(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        });
-
-        return () => {
-            unsubscribeCourses();
-            unsubscribeLecturers();
-            unsubscribeStudents();
-        };
+        fetchCourses();
+        fetchLecturers();
     }, []);
 
-    const handleOpen = (course = null) => {
-        setEditingCourse(course);
-        setOpen(true);
-        setError(null);
+    // Validate form data
+    const validateForm = () => {
+        const errors = {};
+
+        if (!formData.courseCode.trim()) {
+            errors.courseCode = 'Course code is required';
+        } else if (!/^[A-Z]{2,4}\d{3,4}$/.test(formData.courseCode.trim())) {
+            errors.courseCode = 'Invalid format (e.g., MATH101)';
+        }
+
+        if (!formData.courseName.trim()) {
+            errors.courseName = 'Course name is required';
+        } else if (formData.courseName.trim().length < 3) {
+            errors.courseName = 'Course name must be at least 3 characters';
+        }
+
+        setFormErrors(errors);
+        return Object.keys(errors).length === 0;
     };
 
-    const handleClose = () => {
-        setOpen(false);
+    // Check if course code already exists
+    const checkDuplicateCourseCode = async () => {
+        try {
+            const coursesRef = collection(db, 'courses');
+            const codeQuery = query(coursesRef, where('courseCode', '==', formData.courseCode.trim().toUpperCase()));
+            const codeSnapshot = await getDocs(codeQuery);
+
+            if (!codeSnapshot.empty && (!editingCourse || codeSnapshot.docs[0].id !== editingCourse.id)) {
+                setFormErrors(prev => ({ ...prev, courseCode: 'Course code already exists' }));
+                return false;
+            }
+
+            return true;
+        } catch (error) {
+            console.error('Error checking duplicates:', error);
+            setError('Failed to validate course code');
+            return false;
+        }
+    };
+
+    // Handle form input changes
+    const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({
+            ...prev,
+            [name]: name === 'courseCode' ? value.toUpperCase() : value
+        }));
+
+        if (formErrors[name]) {
+            setFormErrors(prev => ({ ...prev, [name]: '' }));
+        }
+    };
+
+    // Open dialog for adding new course
+    const handleAddCourse = () => {
         setEditingCourse(null);
-        setError(null);
+        setFormData({ courseCode: '', courseName: '', instructor: '' });
+        setFormErrors({});
+        setDialogOpen(true);
     };
 
-    const handleSubmit = async (values) => {
+    // Open dialog for editing course
+    const handleEditCourse = (course) => {
+        setEditingCourse(course);
+        setFormData({
+            courseCode: course.courseCode,
+            courseName: course.courseName,
+            instructor: course.instructor
+        });
+        setFormErrors({});
+        setDialogOpen(true);
+    };
+
+    // Assign Lecturers Dialog
+    const handleAssignLecturers = (course) => {
+        setAssigningCourse(course);
+        setSelectedLecturers(course.assignedLecturers || []);
+        setLecturerDialogOpen(true);
+    };
+
+    // Close dialog
+    const handleCloseDialog = () => {
+        setDialogOpen(false);
+        setEditingCourse(null);
+        setFormData({ courseCode: '', courseName: '', instructor: '' });
+        setFormErrors({});
+    };
+
+    const handleCloseLecturerDialog = () => {
+        setLecturerDialogOpen(false);
+        setAssigningCourse(null);
+        setSelectedLecturers([]);
+    };
+
+    // Save course (create or update)
+    const handleSaveCourse = async () => {
+        if (!validateForm()) return;
+        if (!(await checkDuplicateCourseCode())) return;
+
         try {
+            setError('');
+
+            const courseData = {
+                courseCode: formData.courseCode.trim().toUpperCase(),
+                courseName: formData.courseName.trim(),
+            };
+
             if (editingCourse) {
-                await updateDocument(COLLECTIONS.COURSES, editingCourse.id, values);
+                const courseRef = doc(db, 'courses', editingCourse.id);
+                await updateDoc(courseRef, {
+                    ...courseData,
+                    updatedAt: new Date()
+                });
+                setSuccess('Course updated successfully');
             } else {
-                await addDocument(COLLECTIONS.COURSES, {
-                    ...values,
-                    createdAt: new Date().toISOString(),
+                await addDoc(collection(db, 'courses'), {
+                    ...courseData,
+                    createdAt: new Date()
                 });
+                setSuccess('Course added successfully');
             }
-            handleClose();
-        } catch (err) {
-            setError(err.message);
+
+            handleCloseDialog();
+            fetchCourses();
+        } catch (error) {
+            console.error('Error saving course:', error);
+            setError('Failed to save course');
         }
     };
 
-    const handleDelete = async (id) => {
+    // Save lecturer assignment
+    const handleSaveLecturerAssignment = async () => {
         try {
-            // Check if course is referenced by exams
-            const examQuery = query(collection(db, COLLECTIONS.EXAMS), where('courseId', '==', id));
-            const examSnapshot = await getDocs(examQuery);
-            if (!examSnapshot.empty) {
-                setError('Cannot delete course: referenced by exams.');
-                return;
-            }
-
-            // Update students.enrolledCourses
-            const studentQuery = query(collection(db, COLLECTIONS.STUDENTS), where('enrolledCourses', 'array-contains', id));
-            const studentSnapshot = await getDocs(studentQuery);
-            for (const doc of studentSnapshot.docs) {
-                await updateDoc(doc.ref, {
-                    enrolledCourses: arrayRemove(id),
-                });
-            }
-
-            await deleteDocument(COLLECTIONS.COURSES, id);
-        } catch (err) {
-            setError(err.message);
+            const courseRef = doc(db, 'courses', assigningCourse.id);
+            await updateDoc(courseRef, {
+                assignedLecturers: selectedLecturers,
+                updatedAt: new Date()
+            });
+            setSuccess('Lecturers assigned successfully');
+            handleCloseLecturerDialog();
+            fetchCourses();
+        } catch (error) {
+            console.error('Error assigning lecturers:', error);
+            setError('Failed to assign lecturers');
         }
     };
 
-    const validationSchema = Yup.object({
-        courseCode: Yup.string().required('Required'),
-        courseName: Yup.string().required('Required'),
-        lecturerId: Yup.string().required('Required'),
-        students: Yup.array().of(Yup.string()).optional(),
-    });
+    const handleLecturerSelectionChange = (e) => {
+        setSelectedLecturers(e.target.value);
+    };
 
-    const columns = [
-        { field: 'courseCode', headerName: 'Course Code', width: 120 },
-        { field: 'courseName', headerName: 'Course Name', width: 150 },
-        {
-            field: 'lecturerId',
-            headerName: 'Lecturer',
-            width: 150,
-            valueGetter: (params) => {
-                const lecturer = lecturers.find(l => l.id === params.value);
-                return lecturer ? lecturer.name : params.value || 'N/A';
-            },
-        },
-        {
-            field: 'students',
-            headerName: 'Students',
-            width: 150,
-            renderCell: (params) => (
-                <Chip label={params.value.length || 0} color="primary" />
-            ),
-        },
-        { field: 'createdAt', headerName: 'Created At', width: 180 },
-        {
-            field: 'actions',
-            headerName: 'Actions',
-            width: 150,
-            renderCell: (params) => (
-                <>
-                    <Button onClick={() => handleOpen(params.row)}>Edit</Button>
-                    <Button onClick={() => handleDelete(params.id)} color="error">Delete</Button>
-                </>
-            ),
-        },
-    ];
+    // Delete course
+    const handleDeleteCourse = async (course) => {
+        if (!window.confirm(`Are you sure you want to delete ${course.courseCode}?`)) {
+            return;
+        }
+
+        try {
+            setError('');
+            await deleteDoc(doc(db, 'courses', course.id));
+            setSuccess('Course deleted successfully');
+            fetchCourses();
+        } catch (error) {
+            console.error('Error deleting course:', error);
+            setError('Failed to delete course');
+        }
+    };
+
+    // Filter courses based on search term
+    const filteredCourses = courses.filter(course =>
+        course.courseCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        course.courseName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        course.assignedLecturers?.some(lecturerId => {
+            const lecturer = lecturers.find(l => l.id === lecturerId);
+            return lecturer?.name.toLowerCase().includes(searchTerm.toLowerCase());
+        })
+    );
+
+    const handleCloseSnackbar = () => {
+        setError('');
+        setSuccess('');
+    };
+
+    if (loading) {
+        return (
+            <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
+                <CircularProgress />
+            </Box>
+        );
+    }
 
     return (
         <Box sx={{ p: 3 }}>
-            <Typography variant="h4" gutterBottom>Courses</Typography>
-            <Button
-                variant="contained"
-                onClick={() => handleOpen()}
-                sx={{ mb: 2 }}
-            >
-                Add Course
-            </Button>
-            {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-            <div style={{ height: 400, width: '100%' }}>
-                <DataGrid
-                    rows={courses}
-                    columns={columns}
-                    pageSize={5}
-                    rowsPerPageOptions={[5]}
-                    disableSelectionOnClick
-                    loading={loading}
-                />
-            </div>
+            <Typography variant="h4" gutterBottom>
+                Courses Management
+            </Typography>
 
-            <Dialog open={open} onClose={handleClose}>
-                <DialogTitle>{editingCourse ? 'Edit Course' : 'Add Course'}</DialogTitle>
-                <Formik
-                    initialValues={
-                        editingCourse || {
-                            courseCode: '',
-                            courseName: '',
-                            lecturerId: '',
-                            students: [],
-                        }
-                    }
-                    validationSchema={validationSchema}
-                    onSubmit={handleSubmit}
+            {/* Header Actions */}
+            <Box sx={{ mb: 3, display: 'flex', gap: 2, alignItems: 'center' }}>
+                <TextField
+                    placeholder="Search courses..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    InputProps={{
+                        startAdornment: <Search sx={{ mr: 1, color: 'text.secondary' }} />
+                    }}
+                    sx={{ flexGrow: 1, maxWidth: 400 }}
+                />
+                <Button
+                    variant="contained"
+                    startIcon={<Add />}
+                    onClick={handleAddCourse}
                 >
-                    {({ errors, touched, values, setFieldValue }) => (
-                        <Form>
-                            <DialogContent>
-                                <Field
-                                    as={TextField}
-                                    name="courseCode"
-                                    label="Course Code"
-                                    fullWidth
-                                    margin="normal"
-                                    error={touched.courseCode && !!errors.courseCode}
-                                    helperText={touched.courseCode && errors.courseCode}
-                                />
-                                <Field
-                                    as={TextField}
-                                    name="courseName"
-                                    label="Course Name"
-                                    fullWidth
-                                    margin="normal"
-                                    error={touched.courseName && !!errors.courseName}
-                                    helperText={touched.courseName && errors.courseName}
-                                />
-                                <FormControl fullWidth margin="normal">
-                                    <InputLabel>Lecturer</InputLabel>
-                                    <Field
-                                        as={Select}
-                                        name="lecturerId"
-                                        value={values.lecturerId}
-                                        onChange={(e) => setFieldValue('lecturerId', e.target.value)}
-                                        error={touched.lecturerId && !!errors.lecturerId}
-                                    >
-                                        {lecturers.map(lecturer => (
-                                            <MenuItem key={lecturer.id} value={lecturer.id}>
-                                                {lecturer.name}
-                                            </MenuItem>
-                                        ))}
-                                    </Field>
-                                </FormControl>
-                                <FormControl fullWidth margin="normal">
-                                    <InputLabel>Students</InputLabel>
-                                    <Field
-                                        as={Select}
-                                        name="students"
-                                        multiple
-                                        value={values.students}
-                                        onChange={(e) => setFieldValue('students', e.target.value)}
-                                        renderValue={(selected) => (
-                                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                                                {selected.map((value) => (
-                                                    <Chip key={value} label={students.find(s => s.id === value)?.name || value} />
-                                                ))}
-                                            </Box>
-                                        )}
-                                    >
-                                        {students.map(student => (
-                                            <MenuItem key={student.id} value={student.id}>
-                                                {student.name}
-                                            </MenuItem>
-                                        ))}
-                                    </Field>
-                                </FormControl>
-                                {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
-                            </DialogContent>
-                            <DialogActions>
-                                <Button onClick={handleClose} disabled={loading}>Cancel</Button>
-                                <Button type="submit" variant="contained" disabled={loading}>
-                                    {loading ? 'Saving...' : 'Save'}
-                                </Button>
-                            </DialogActions>
-                        </Form>
-                    )}
-                </Formik>
+                    Add Course
+                </Button>
+            </Box>
+
+            {/* Courses Table */}
+            <TableContainer component={Paper}>
+                <Table>
+                    <TableHead>
+                        <TableRow>
+                            <TableCell>Course Code</TableCell>
+                            <TableCell>Course Name</TableCell>
+                            <TableCell>Assigned Lecturers</TableCell>
+                            <TableCell>Created</TableCell>
+                            <TableCell align="right">Actions</TableCell>
+                        </TableRow>
+                    </TableHead>
+                    <TableBody>
+                        {filteredCourses.length > 0 ? (
+                            filteredCourses.map((course) => (
+                                <TableRow key={course.id}>
+                                    <TableCell>
+                                        <Typography variant="body2" component="code" sx={{ fontWeight: 'bold' }}>
+                                            {course.courseCode}
+                                        </Typography>
+                                    </TableCell>
+                                    <TableCell>{course.courseName}</TableCell>
+                                    <TableCell>
+                                        {course.assignedLecturers?.map((lecturerId) => {
+                                            const lecturer = lecturers.find(l => l.id === lecturerId);
+                                            return (
+                                                <Chip
+                                                    key={lecturerId}
+                                                    label={lecturer?.name || lecturerId}
+                                                    size="small"
+                                                    sx={{ mr: 1 }}
+                                                />
+                                            );
+                                        })}
+                                    </TableCell>
+                                    <TableCell>
+                                        {course.createdAt?.toDate?.()?.toLocaleDateString() || 'N/A'}
+                                    </TableCell>
+                                    <TableCell align="right">
+                                        <IconButton
+                                            onClick={() => handleEditCourse(course)}
+                                            color="primary"
+                                            title="Edit Course"
+                                        >
+                                            <Edit />
+                                        </IconButton>
+                                        <IconButton
+                                            onClick={() => handleAssignLecturers(course)}
+                                            color="primary"
+                                            title="Assign Lecturers"
+                                        >
+                                            <Add />
+                                        </IconButton>
+                                        <IconButton
+                                            onClick={() => handleDeleteCourse(course)}
+                                            color="error"
+                                            title="Delete Course"
+                                        >
+                                            <Delete />
+                                        </IconButton>
+                                    </TableCell>
+                                </TableRow>
+                            ))
+                        ) : (
+                            <TableRow>
+                                <TableCell colSpan={5} align="center">
+                                    <Typography color="text.secondary">
+                                        {searchTerm ? 'No courses found matching your search' : 'No courses added yet'}
+                                    </Typography>
+                                </TableCell>
+                            </TableRow>
+                        )}
+                    </TableBody>
+                </Table>
+            </TableContainer>
+
+            {/* Add/Edit Course Dialog */}
+            <Dialog open={dialogOpen} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
+                <DialogTitle>
+                    {editingCourse ? 'Edit Course' : 'Add New Course'}
+                </DialogTitle>
+                <DialogContent>
+                    <TextField
+                        fullWidth
+                        label="Course Code"
+                        name="courseCode"
+                        value={formData.courseCode}
+                        onChange={handleInputChange}
+                        margin="normal"
+                        required
+                        error={!!formErrors.courseCode}
+                        helperText={formErrors.courseCode || 'e.g., MATH101, PHYS201'}
+                        placeholder="MATH101"
+                    />
+                    <TextField
+                        fullWidth
+                        label="Course Name"
+                        name="courseName"
+                        value={formData.courseName}
+                        onChange={handleInputChange}
+                        margin="normal"
+                        required
+                        error={!!formErrors.courseName}
+                        helperText={formErrors.courseName}
+                        placeholder="Calculus I"
+                    />
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={handleCloseDialog}>
+                        Cancel
+                    </Button>
+                    <Button onClick={handleSaveCourse} variant="contained">
+                        {editingCourse ? 'Update' : 'Add'} Course
+                    </Button>
+                </DialogActions>
             </Dialog>
+
+            {/* Assign Lecturers Dialog */}
+            <Dialog open={lecturerDialogOpen} onClose={handleCloseLecturerDialog} maxWidth="sm" fullWidth>
+                <DialogTitle>
+                    Assign Lecturers - {assigningCourse?.courseCode}
+                </DialogTitle>
+                <DialogContent>
+                    <FormControl fullWidth margin="normal">
+                        <InputLabel>Select Lecturers</InputLabel>
+                        <Select
+                            multiple
+                            value={selectedLecturers}
+                            onChange={handleLecturerSelectionChange}
+                            input={<OutlinedInput label="Select Lecturers" />}
+                            renderValue={(selected) => (
+                                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                                    {selected.map((lecturerId) => {
+                                        const lecturer = lecturers.find(l => l.id === lecturerId);
+                                        return (
+                                            <Chip
+                                                key={lecturerId}
+                                                label={lecturer?.name || lecturerId}
+                                                size="small"
+                                            />
+                                        );
+                                    })}
+                                </Box>
+                            )}
+                        >
+                            {lecturers.map((lecturer) => (
+                                <MenuItem key={lecturer.id} value={lecturer.id}>
+                                    <Checkbox checked={selectedLecturers.indexOf(lecturer.id) > -1} />
+                                    <ListItemText
+                                        primary={lecturer.name}
+                                        secondary={lecturer.email}
+                                    />
+                                </MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
+                    {lecturers.length === 0 && (
+                        <Alert severity="info" sx={{ mt: 2 }}>
+                            No lecturers available. Please add lecturers first.
+                        </Alert>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={handleCloseLecturerDialog}>
+                        Cancel
+                    </Button>
+                    <Button
+                        onClick={handleSaveLecturerAssignment}
+                        variant="contained"
+                        disabled={lecturers.length === 0}
+                    >
+                        Save Assignment
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Success/Error Snackbars */}
+            <Snackbar
+                open={!!success}
+                autoHideDuration={4000}
+                onClose={handleCloseSnackbar}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+            >
+                <Alert onClose={handleCloseSnackbar} severity="success">
+                    {success}
+                </Alert>
+            </Snackbar>
+
+            <Snackbar
+                open={!!error}
+                autoHideDuration={6000}
+                onClose={handleCloseSnackbar}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+            >
+                <Alert onClose={handleCloseSnackbar} severity="error">
+                    {error}
+                </Alert>
+            </Snackbar>
         </Box>
     );
 };

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, {useState} from 'react';
 import {
     AppBar,
     Toolbar,
@@ -21,14 +21,14 @@ import {
     People,
     Computer,
     Assignment,
-    Settings,
-    AdminPanelSettings
+    Settings, ResetTv,
 } from '@mui/icons-material';
-import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import {Link, useNavigate} from 'react-router-dom';
+import {useAuth} from '../context/AuthContext';
+import {Role} from "../models/types";
 
 const NavigationBar = () => {
-    const { user, logout, isAdmin, error } = useAuth();
+    const {user, logout, isAdmin, error} = useAuth();
     const [anchorEl, setAnchorEl] = useState(null);
     const [logoutError, setLogoutError] = useState('');
     const navigate = useNavigate();
@@ -58,19 +58,17 @@ const NavigationBar = () => {
     };
 
     const adminMenuItems = [
-        { label: 'Dashboard', path: '/', icon: <Dashboard /> },
-        { label: 'Courses', path: '/courses', icon: <School /> },
-        { label: 'Students', path: '/students', icon: <People /> },
-        { label: 'Lecturers', path: '/lecturers', icon: <People /> },
-        { label: 'Users', path: '/users', icon: <AdminPanelSettings /> },
-        { label: 'Devices', path: '/devices', icon: <Computer /> },
-        { label: 'Exams', path: '/exams', icon: <Assignment /> },
-        { label: 'Settings', path: '/settings', icon: <Settings /> }
+        {label: 'Attendance', path: '/attendance', icon: <ResetTv/>},
+        {label: 'Exams', path: '/exams', icon: <Assignment/>},
+        {label: 'Devices', path: '/devices', icon: <Computer/>},
+        {label: 'Courses', path: '/courses', icon: <School/>},
+        {label: 'Students', path: '/students', icon: <People/>},
+        {label: 'Lecturers', path: '/lecturers', icon: <People/>}
     ];
 
     const lecturerMenuItems = [
-        { label: 'Dashboard', path: '/', icon: <Dashboard /> },
-        { label: 'Attendance', path: '/attendance', icon: <Assignment /> }
+        {label: 'Dashboard', path: '/', icon: <Dashboard/>},
+        {label: 'Attendance', path: '/attendance', icon: <Assignment/>}
     ];
 
     const menuItems = isAdmin ? adminMenuItems : lecturerMenuItems;
@@ -79,14 +77,21 @@ const NavigationBar = () => {
         <>
             <AppBar position="static">
                 <Toolbar>
-                    <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-                        Attendance System
-                    </Typography>
+                    <Button
+                        color="inherit"
+                        component={Link}
+                        to={'/'}
+                        sx={{flexGrow: 1}}
+                    >
+                        <Typography variant="h6" component="div">
+                            Attendance System
+                        </Typography>
+                    </Button>
 
                     {user ? (
                         <>
                             {/* Navigation Links */}
-                            <Box sx={{ display: { xs: 'none', md: 'flex' }, mr: 2 }}>
+                            <Box sx={{display: {xs: 'none', md: 'flex'}, mr: 2}}>
                                 {menuItems.map((item) => (
                                     <Button
                                         key={item.path}
@@ -94,7 +99,7 @@ const NavigationBar = () => {
                                         component={Link}
                                         to={item.path}
                                         startIcon={item.icon}
-                                        sx={{ mx: 1 }}
+                                        sx={{mx: 1}}
                                     >
                                         {item.label}
                                     </Button>
@@ -102,8 +107,8 @@ const NavigationBar = () => {
                             </Box>
 
                             {/* User Menu */}
-                            <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                                <Typography variant="body2" sx={{ mr: 2 }}>
+                            <Box sx={{display: 'flex', alignItems: 'center'}}>
+                                <Typography variant="body2" sx={{mr: 2}}>
                                     {user.displayName || user.name || 'User'}
                                     {isAdmin && (
                                         <Typography
@@ -127,7 +132,7 @@ const NavigationBar = () => {
                                     onClick={handleMenuOpen}
                                     startIcon={
                                         <Avatar
-                                            sx={{ width: 24, height: 24 }}
+                                            sx={{width: 24, height: 24}}
                                             src={user.photoURL}
                                         >
                                             {(user.displayName || user.name || user.email)?.[0]?.toUpperCase()}
@@ -141,11 +146,11 @@ const NavigationBar = () => {
                                     anchorEl={anchorEl}
                                     open={Boolean(anchorEl)}
                                     onClose={handleMenuClose}
-                                    transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-                                    anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+                                    transformOrigin={{horizontal: 'right', vertical: 'top'}}
+                                    anchorOrigin={{horizontal: 'right', vertical: 'bottom'}}
                                 >
                                     {/* Mobile Navigation */}
-                                    <Box sx={{ display: { xs: 'block', md: 'none' } }}>
+                                    <Box sx={{display: {xs: 'block', md: 'none'}}}>
                                         {menuItems.map((item) => (
                                             <MenuItem
                                                 key={item.path}
@@ -157,20 +162,36 @@ const NavigationBar = () => {
                                                 {item.label}
                                             </MenuItem>
                                         ))}
-                                        <Divider />
+                                        <Divider/>
                                     </Box>
 
                                     {/* Profile and Logout */}
+                                    {user.role === Role.ADMIN && (
+                                        <div>
+                                            <MenuItem component={Link} to="/users" onClick={handleMenuClose}>
+                                                <ListItemIcon>
+                                                    <People/>
+                                                </ListItemIcon>
+                                                Users Management
+                                            </MenuItem>
+                                            <MenuItem component={Link} to="/settings" onClick={handleMenuClose}>
+                                                <ListItemIcon>
+                                                    <Settings/>
+                                                </ListItemIcon>
+                                                Settings
+                                            </MenuItem>
+                                        </div>
+                                    )}
+                                    <Divider/>
                                     <MenuItem component={Link} to="/profile" onClick={handleMenuClose}>
                                         <ListItemIcon>
-                                            <Person />
+                                            <Person/>
                                         </ListItemIcon>
                                         Profile
                                     </MenuItem>
-                                    <Divider />
                                     <MenuItem onClick={handleLogout}>
                                         <ListItemIcon>
-                                            <ExitToApp />
+                                            <ExitToApp/>
                                         </ListItemIcon>
                                         Logout
                                     </MenuItem>
@@ -195,12 +216,12 @@ const NavigationBar = () => {
                 open={!!error || !!logoutError}
                 autoHideDuration={6000}
                 onClose={handleCloseError}
-                anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+                anchorOrigin={{vertical: 'bottom', horizontal: 'center'}}
             >
                 <Alert
                     onClose={handleCloseError}
                     severity="error"
-                    sx={{ width: '100%' }}
+                    sx={{width: '100%'}}
                 >
                     {error || logoutError}
                 </Alert>

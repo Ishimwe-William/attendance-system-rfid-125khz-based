@@ -1,6 +1,6 @@
 import React from 'react';
-import {Routes, Route, Navigate, BrowserRouter} from 'react-router-dom';
-import {AuthProvider, useAuth} from './context/AuthContext';
+import {Routes, Route, Navigate, HashRouter} from 'react-router-dom';
+import {AuthProvider} from './context/AuthContext';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Dashboard from './pages/Dashboard';
@@ -18,7 +18,7 @@ import NavigationBar from "./components/NavigationBar";
 const App = () => {
     return (
         <AuthProvider>
-            <BrowserRouter>
+            <HashRouter>
                 <NavigationBar/>
                 <Routes>
                     <Route path="/login" element={<Login/>}/>
@@ -34,7 +34,7 @@ const App = () => {
                     <Route path="/users" element={<PrivateRoute adminOnly={true}><UsersList/></PrivateRoute>}/>
                     <Route path="*" element={<Navigate to="/"/>}/>
                 </Routes>
-            </BrowserRouter>
+            </HashRouter>
         </AuthProvider>
     );
 };

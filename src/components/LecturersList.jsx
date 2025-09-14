@@ -18,7 +18,6 @@ import {
     Typography,
     Alert,
     Snackbar,
-    CircularProgress,
     Chip
 } from '@mui/material';
 import {
@@ -36,7 +35,6 @@ import {
     doc,
     query,
     orderBy,
-    where
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 

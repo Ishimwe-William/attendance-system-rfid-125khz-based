@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import { db, COLLECTIONS } from '../config/firebase';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -73,7 +73,6 @@ export const useDatabase = () => {
       const studentSnap = await getDocs(studentQuery);
       if (studentSnap.empty) throw new Error('No student found with this RFID tag');
 
-      const student = studentSnap.docs[0].data();
       const studentId = studentSnap.docs[0].id;
 
       // Fetch exam

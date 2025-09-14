@@ -136,8 +136,8 @@ const AttendanceList = () => {
     const handleDelete = async (row) => {
         try {
             if (!isAdmin) throw new Error('Unauthorized');
-            if (!row.rfidTag) throw new Error('Cannot delete card recorded attendance.');
-            await deleteDocument(COLLECTIONS.ATTENDANCE, row.id);
+            if (!row?.rfidTag) throw new Error('Cannot delete card recorded attendance.');
+            await deleteDocument(COLLECTIONS.ATTENDANCE, row?.id);
         } catch (err) {
             setError(err.message);
         }
@@ -155,16 +155,16 @@ const AttendanceList = () => {
     });
 
     const getCheckInDate = (row) => {
-        if (row.checkInEpochTime) {
-            return new Date(row.checkInEpochTime * 1000);
-        } else if (row.checkInTime) {
-            if (row.checkInTime.includes('T')) {
-                return new Date(row.checkInTime);
+        if (row?.checkInEpochTime) {
+            return new Date(row?.checkInEpochTime * 1000);
+        } else if (row?.checkInTime) {
+            if (row?.checkInTime.includes('T')) {
+                return new Date(row?.checkInTime);
             } else {
-                const examId = row.examId || row.currentExam;
+                const examId = row?.examId || row?.currentExam;
                 const exam = exams.find(e => e.id === examId);
                 if (exam && exam.examDate) {
-                    return new Date(`${exam.examDate}T${row.checkInTime}`);
+                    return new Date(`${exam.examDate}T${row?.checkInTime}`);
                 }
             }
         }
@@ -172,16 +172,16 @@ const AttendanceList = () => {
     };
 
     const getCheckOutDate = (row) => {
-        if (row.checkOutEpochTime) {
-            return new Date(row.checkOutEpochTime * 1000);
-        } else if (row.checkOutTime) {
-            if (row.checkOutTime.includes('T')) {
-                return new Date(row.checkOutTime);
+        if (row?.checkOutEpochTime) {
+            return new Date(row?.checkOutEpochTime * 1000);
+        } else if (row?.checkOutTime) {
+            if (row?.checkOutTime.includes('T')) {
+                return new Date(row?.checkOutTime);
             } else {
-                const examId = row.examId || row.currentExam;
+                const examId = row?.examId || row?.currentExam;
                 const exam = exams.find(e => e.id === examId);
                 if (exam && exam.examDate) {
-                    return new Date(`${exam.examDate}T${row.checkOutTime}`);
+                    return new Date(`${exam.examDate}T${row?.checkOutTime}`);
                 }
             }
         }
@@ -194,7 +194,7 @@ const AttendanceList = () => {
             headerName: 'Exam',
             width: 150,
             valueGetter: (value, row) => {
-                const examId = row.currentExam;
+                const examId = row?.currentExam;
                 const exam = exams.find(e => e.id === examId);
                 const course = courses.find(e => e.id === exam.courseCode)
                 return course ? course.courseName : 'N/A';
@@ -206,19 +206,19 @@ const AttendanceList = () => {
             width: 150,
             valueGetter: (value, row) => {
                 let student;
-                if (row.rfidTag) {
-                    student = students.find(s => s.id === row.studentId);
+                if (row?.rfidTag) {
+                    student = students.find(s => s.id === row?.studentId);
                 } else {
-                    student = students.find(s => s.rfidTag === row.studentId);
+                    student = students.find(s => s.rfidTag === row?.studentId);
                 }
-                return student ? student.name : row.studentId || 'N/A';
+                return student ? student.name : row?.studentId || 'N/A';
             },
         },
         {
             field: 'rfid',
             headerName: 'RFID Tag',
             width: 120,
-            valueGetter: (value, row) => row.rfidTag || row.studentId,
+            valueGetter: (value, row) => row?.rfidTag || row?.studentId,
         },
         {
             field: 'checkIn',
@@ -251,12 +251,12 @@ const AttendanceList = () => {
             headerName: 'Status',
             width: 100,
             valueGetter: (value, row) => {
-                if (row.status) {
-                    return row.status;
+                if (row?.status) {
+                    return row?.status;
                 }
-                const examId = row.examId || row.currentExam;
+                const examId = row?.examId || row?.currentExam;
                 const exam = exams.find(e => e.id === examId);
-                const checkInStr = row.checkInTime;
+                const checkInStr = row?.checkInTime;
                 if (checkInStr && exam && examSettings?.allowLateEntry) {
                     let checkIn;
                     if (checkInStr.includes('T')) {
@@ -279,7 +279,7 @@ const AttendanceList = () => {
             width: 150,
             valueGetter: (value, row) => {
                 const device = devices.find(d => d.id === value);
-                return device ? device.deviceName : row.deviceName || value || 'N/A';
+                return device ? device.deviceName : row?.deviceName || value || 'N/A';
             },
         },
         {
@@ -294,7 +294,7 @@ const AttendanceList = () => {
             width: 150,
             renderCell: (params) => {
                 if (!isAdmin) return null;
-                if (!params.row.rfidTag) {
+                if (!params.row?.rfidTag) {
                     return <Typography color="textSecondary">Device Recorded</Typography>;
                 }
                 return (

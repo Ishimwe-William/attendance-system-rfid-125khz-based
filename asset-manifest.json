@@ -1,0 +1,15 @@
+{
+  "files": {
+    "main.css": "/attendance-system-rfid-125khz-based/static/css/main.e6c13ad2.css",
+    "main.js": "/attendance-system-rfid-125khz-based/static/js/main.d08f5fe1.js",
+    "static/js/453.9da27f0e.chunk.js": "/attendance-system-rfid-125khz-based/static/js/453.9da27f0e.chunk.js",
+    "index.html": "/attendance-system-rfid-125khz-based/index.html",
+    "main.e6c13ad2.css.map": "/attendance-system-rfid-125khz-based/static/css/main.e6c13ad2.css.map",
+    "main.d08f5fe1.js.map": "/attendance-system-rfid-125khz-based/static/js/main.d08f5fe1.js.map",
+    "453.9da27f0e.chunk.js.map": "/attendance-system-rfid-125khz-based/static/js/453.9da27f0e.chunk.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.e6c13ad2.css",
+    "static/js/main.d08f5fe1.js"
+  ]
+}

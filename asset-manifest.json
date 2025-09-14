@@ -1,15 +1,15 @@
 {
   "files": {
-    "main.css": "/home/static/css/main.e6c13ad2.css",
-    "main.js": "/home/static/js/main.1af16c99.js",
-    "static/js/453.9da27f0e.chunk.js": "/home/static/js/453.9da27f0e.chunk.js",
-    "index.html": "/home/index.html",
-    "main.e6c13ad2.css.map": "/home/static/css/main.e6c13ad2.css.map",
-    "main.1af16c99.js.map": "/home/static/js/main.1af16c99.js.map",
-    "453.9da27f0e.chunk.js.map": "/home/static/js/453.9da27f0e.chunk.js.map"
+    "main.css": "/attendance-system/static/css/main.e6c13ad2.css",
+    "main.js": "/attendance-system/static/js/main.3eacc905.js",
+    "static/js/453.9da27f0e.chunk.js": "/attendance-system/static/js/453.9da27f0e.chunk.js",
+    "index.html": "/attendance-system/index.html",
+    "main.e6c13ad2.css.map": "/attendance-system/static/css/main.e6c13ad2.css.map",
+    "main.3eacc905.js.map": "/attendance-system/static/js/main.3eacc905.js.map",
+    "453.9da27f0e.chunk.js.map": "/attendance-system/static/js/453.9da27f0e.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.e6c13ad2.css",
-    "static/js/main.1af16c99.js"
+    "static/js/main.3eacc905.js"
   ]
 }

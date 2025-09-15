@@ -19,8 +19,6 @@ import {
     Person as PersonIcon,
     Event as EventIcon,
     Devices as DevicesIcon,
-    Scanner as ScannerIcon,
-    Settings as SettingsIcon
 } from '@mui/icons-material';
 import { ExamStatus } from '../models/types';
 
@@ -87,12 +85,20 @@ const Dashboard = () => {
     }, []);
 
     const columns = [
-        { field: 'examId', headerName: 'Exam ID', width: 120 },
+        { field: 'examId', headerName: 'Exam ID', width: 120,
+            valueGetter: (value, row) => {
+                return row?.currentExam || row?.examId;
+            },
+        },
         { field: 'studentId', headerName: 'Student ID', width: 120 },
-        { field: 'rfidTag', headerName: 'RFID Tag', width: 120 },
-        { field: 'checkInTime', headerName: 'Check-In', width: 150 },
+        { field: 'rfidTag', headerName: 'RFID Tag', width: 120,
+            valueGetter: (value, row) => row?.rfidTag || row?.studentId,
+        },
+        { field: 'checkInTime', headerName: 'Check-In', width: 150, },
         { field: 'checkOutTime', headerName: 'Check-Out', width: 150 },
-        { field: 'status', headerName: 'Status', width: 100 },
+        { field: 'status', headerName: 'Status', width: 100,
+            valueGetter: (value, row) => row?.status || "-- View on attendance page --",
+        },
         { field: 'deviceId', headerName: 'Device', width: 100 },
     ];
 
@@ -102,8 +108,6 @@ const Dashboard = () => {
         { text: 'Lecturers', path: '/lecturers', icon: <PersonIcon />, roles: ['admin'] },
         { text: 'Exams', path: '/exams', icon: <EventIcon />, roles: ['admin'] },
         { text: 'Devices', path: '/devices', icon: <DevicesIcon />, roles: ['admin'] },
-        { text: 'Settings', path: '/settings', icon: <SettingsIcon />, roles: ['admin'] },
-        { text: 'Scanner', path: '/scanner', icon: <ScannerIcon />, roles: ['admin', 'lecturer'] },
     ];
 
     return (

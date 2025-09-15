@@ -1,79 +1,55 @@
-import React, { useState, useEffect } from 'react';
-import { collection, onSnapshot, query, doc } from 'firebase/firestore';
-import { db, COLLECTIONS } from '../config/firebase';
-import { useDatabase } from '../hooks/useDatabase';
-import { useAuth } from '../context/AuthContext';
-import { DataGrid } from '@mui/x-data-grid';
-import {
-    Button,
-    Dialog,
-    DialogTitle,
-    DialogContent,
-    DialogActions,
-    TextField,
-    FormControl,
-    InputLabel,
-    Select,
-    MenuItem,
-    Alert,
-    Box,
-    Typography, Switch
-} from '@mui/material';
-import { Formik, Form, Field } from 'formik';
+import React, {useState, useEffect} from 'react';
+import {collection, onSnapshot, query} from 'firebase/firestore';
+import {db, COLLECTIONS} from '../config/firebase';
+import {useDatabase} from '../hooks/useDatabase';
+import {useAuth} from '../context/AuthContext';
+import {Box, Typography, Button, Alert, Chip} from '@mui/material';
 import * as Yup from 'yup';
-import { AttendanceStatus } from '../models/types';
+import OngoingExamsSummary from './attendance/OngoingExamsSummary';
+import AttendanceFormDialog from './attendance/AttendanceFormDialog';
+import ConfirmDeleteDialog from './attendance/ConfirmDeleteDialog';
+import AttendanceTable from './attendance/AttendanceTable';
+import {AttendanceStatus} from '../models/types';
 
 const AttendanceList = () => {
-    const { user } = useAuth();
+    const {user} = useAuth();
     const isAdmin = user?.role === 'admin';
     const [attendance, setAttendance] = useState([]);
     const [exams, setExams] = useState([]);
     const [courses, setCourses] = useState([]);
     const [students, setStudents] = useState([]);
     const [devices, setDevices] = useState([]);
-    const [examSettings, setExamSettings] = useState(null);
     const [open, setOpen] = useState(false);
+    const [openConfirm, setOpenConfirm] = useState(false);
+    const [deletingRow, setDeletingRow] = useState(null);
     const [editingAttendance, setEditingAttendance] = useState(null);
     const [error, setError] = useState(null);
-    const { addDocument, updateDocument, deleteDocument, loading } = useDatabase();
+    const {addDocument, updateDocument, deleteDocument, loading} = useDatabase();
 
     useEffect(() => {
-        // Fetch attendance
         const attendanceQuery = query(collection(db, COLLECTIONS.ATTENDANCE));
         const unsubscribeAttendance = onSnapshot(attendanceQuery, (snapshot) => {
-            setAttendance(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setAttendance(snapshot.docs.map(doc => ({id: doc.id, ...doc.data()})));
         });
 
-        // Fetch exams
         const examQuery = query(collection(db, COLLECTIONS.EXAMS));
         const unsubscribeExams = onSnapshot(examQuery, (snapshot) => {
-            setExams(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setExams(snapshot.docs.map(doc => ({id: doc.id, ...doc.data()})));
         });
 
-        // Fetch course
         const courseQuery = query(collection(db, COLLECTIONS.COURSES));
         const unsubscribeCourse = onSnapshot(courseQuery, (snapshot) => {
-            setCourses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setCourses(snapshot.docs.map(doc => ({id: doc.id, ...doc.data()})));
         });
 
-        // Fetch students
         const studentQuery = query(collection(db, COLLECTIONS.STUDENTS));
         const unsubscribeStudents = onSnapshot(studentQuery, (snapshot) => {
-            setStudents(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setStudents(snapshot.docs.map(doc => ({id: doc.id, ...doc.data()})));
         });
 
-        // Fetch devices
         const deviceQuery = query(collection(db, COLLECTIONS.DEVICES));
         const unsubscribeDevices = onSnapshot(deviceQuery, (snapshot) => {
-            setDevices(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        });
-
-        // Fetch examSettings
-        const examSettingsRef = doc(db, COLLECTIONS.SETTINGS, 'examSettings');
-        const unsubscribeExamSettings = onSnapshot(examSettingsRef, (doc) => {
-            if (doc.exists()) {
-                setExamSettings(doc.data());
-            }
+            setDevices(snapshot.docs.map(doc => ({id: doc.id, ...doc.data()})));
         });
 
         return () => {
@@ -82,14 +58,13 @@ const AttendanceList = () => {
             unsubscribeCourse();
             unsubscribeStudents();
             unsubscribeDevices();
-            unsubscribeExamSettings();
         };
     }, []);
 
     const handleOpen = (record = null) => {
         if (!isAdmin) return;
         if (record && !record.rfidTag) {
-            setError('Cannot edit card recorded attendance.');
+            setError('Cannot edit RFID recorded attendance.');
             return;
         }
         setEditingAttendance(record);
@@ -105,20 +80,60 @@ const AttendanceList = () => {
 
     const handleSubmit = async (values) => {
         try {
-            // Validate rfidTag against selected student
-            const student = students.find(s => s.id === values.studentId);
+            values.deviceId = "Manual";
+            values.deviceName = "-- Manual --";
+            const student = students.find((s) => s.id === values.studentId);
             if (student && values.rfidTag !== student.rfidTag) {
-                throw new Error('RFID tag does not match selected student.');
+                throw new Error("RFID tag does not match selected student.");
             }
 
-            // Validate late entry based on examSettings
-            const exam = exams.find(e => e.id === values.examId);
-            if (exam && values.checkInTime && examSettings?.allowLateEntry) {
-                const examStart = new Date(`${exam.examDate}T${exam.startTime}:00Z`);
-                const checkIn = new Date(values.checkInTime);
-                const gracePeriodMs = examSettings.lateEntryGracePeriod * 60 * 1000;
-                if (checkIn > new Date(examStart.getTime() + gracePeriodMs)) {
-                    values.status = AttendanceStatus.LATE;
+            const exam = exams.find((e) => e.id === values.examId);
+            if (!exam) {
+                throw new Error("Selected exam not found.");
+            }
+
+            if (values.checkInTime) {
+                const checkInDate = new Date(values.checkInTime);
+                if (isNaN(checkInDate.getTime())) {
+                    throw new Error("Invalid check-in date and time format.");
+                }
+                const examStart = new Date(`${exam.examDate}T${exam.startTime}`);
+                const examEnd = new Date(examStart.getTime() + exam.duration * 60 * 60 * 1000);
+
+                const checkInDateOnly = values.checkInTime.split("T")[0];
+                if (checkInDateOnly !== exam.examDate) {
+                    throw new Error(`Check-in date must match exam date (${exam.examDate}).`);
+                }
+
+                if (checkInDate < examStart) {
+                    throw new Error(`Cannot check in before exam starts (${exam.startTime}).`);
+                }
+
+                if (checkInDate > examEnd) {
+                    throw new Error(`Cannot check in after exam ends.`);
+                }
+            } else {
+                const now = new Date();
+                const examStart = new Date(`${exam.examDate}T${exam.startTime}`);
+                const examEnd = new Date(examStart.getTime() + (exam.duration * 60 * 60 * 1000));
+
+                if (now >= examStart && now <= examEnd) {
+                    values.checkInTime = now.toISOString();
+                }
+            }
+
+            if (values.checkOutTime) {
+                const checkOutDate = new Date(values.checkOutTime);
+                const examEnd = new Date(`${exam.examDate}T${exam.startTime}`);
+                examEnd.setTime(examEnd.getTime() + (exam.duration * 60 * 60 * 1000));
+
+                const checkOutDateOnly = values.checkOutTime.split('T')[0];
+                if (checkOutDateOnly !== exam.examDate) {
+                    throw new Error(`Check-out date must match exam date (${exam.examDate}).`);
+                }
+
+                if (values.checkInTime && checkOutDate < new Date(values.checkInTime)) {
+                    throw new Error('Check-out time cannot be before check-in time.');
                 }
             }
 
@@ -133,13 +148,21 @@ const AttendanceList = () => {
         }
     };
 
-    const handleDelete = async (row) => {
+    const handleDelete = (row) => {
+        setDeletingRow(row);
+        setOpenConfirm(true);
+    };
+
+    const confirmDelete = async () => {
         try {
             if (!isAdmin) throw new Error('Unauthorized');
-            if (!row?.rfidTag) throw new Error('Cannot delete card recorded attendance.');
-            await deleteDocument(COLLECTIONS.ATTENDANCE, row?.id);
+            if (deletingRow?.rfidTag) throw new Error('Cannot delete RFID recorded attendance.');
+            await deleteDocument(COLLECTIONS.ATTENDANCE, deletingRow?.id);
+            setOpenConfirm(false);
+            setDeletingRow(null);
         } catch (err) {
             setError(err.message);
+            setOpenConfirm(false);
         }
     };
 
@@ -147,10 +170,17 @@ const AttendanceList = () => {
         examId: Yup.string().required('Required'),
         studentId: Yup.string().required('Required'),
         rfidTag: Yup.string().required('Required'),
-        checkInTime: Yup.string().matches(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/, 'Must be ISO format (YYYY-MM-DDTHH:MM:SSZ)').optional(),
-        checkOutTime: Yup.string().matches(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/, 'Must be ISO format (YYYY-MM-DDTHH:MM:SSZ)').optional(),
+        checkInTime: Yup.string().test('check-in-time', 'Invalid date and time format', (value) => {
+            if (!value) return true;
+            const regex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+            return regex.test(value);
+        }),
+        checkOutTime: Yup.string().test('check-out-time', 'Invalid date and time format', (value) => {
+            if (!value) return true;
+            const regex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+            return regex.test(value);
+        }),
         status: Yup.string().oneOf([AttendanceStatus.PRESENT, AttendanceStatus.ABSENT, AttendanceStatus.LATE]).required('Required'),
-        deviceId: Yup.string().required('Required'),
         emailSent: Yup.boolean().required('Required'),
     });
 
@@ -158,15 +188,11 @@ const AttendanceList = () => {
         if (row?.checkInEpochTime) {
             return new Date(row?.checkInEpochTime * 1000);
         } else if (row?.checkInTime) {
-            if (row?.checkInTime.includes('T')) {
-                return new Date(row?.checkInTime);
-            } else {
-                const examId = row?.examId || row?.currentExam;
-                const exam = exams.find(e => e.id === examId);
-                if (exam && exam.examDate) {
-                    return new Date(`${exam.examDate}T${row?.checkInTime}`);
-                }
+            const checkInDate = new Date(row?.checkInTime);
+            if (isNaN(checkInDate.getTime())) {
+                return null;
             }
+            return checkInDate;
         }
         return null;
     };
@@ -175,35 +201,191 @@ const AttendanceList = () => {
         if (row?.checkOutEpochTime) {
             return new Date(row?.checkOutEpochTime * 1000);
         } else if (row?.checkOutTime) {
-            if (row?.checkOutTime.includes('T')) {
-                return new Date(row?.checkOutTime);
-            } else {
-                const examId = row?.examId || row?.currentExam;
-                const exam = exams.find(e => e.id === examId);
-                if (exam && exam.examDate) {
-                    return new Date(`${exam.examDate}T${row?.checkOutTime}`);
-                }
+            const checkOutDate = new Date(row?.checkOutTime);
+            if (isNaN(checkOutDate.getTime())) {
+                return null;
             }
+            return checkOutDate;
         }
         return null;
     };
 
+// Add this constant at the top of your file
+    const RFID_TIMEZONE_OFFSET_HOURS = 2; // RFID device is 2 hours ahead
+    const GRACE_PERIOD_MINUTES = 10; // Students can check in up to 5 minutes after exam start and still be "PRESENT"
+
+    const getAttendanceStatus = (exam, attendanceRecord) => {
+        if (!exam) return "Unknown";
+
+        if (attendanceRecord.status) {
+            return attendanceRecord.status;
+        }
+
+        // Prioritize epoch if available; fallback to parsing string
+        let checkInEpoch = attendanceRecord.checkInEpochTime;
+        if (!checkInEpoch && attendanceRecord.checkInTime) {
+            const checkInDate = new Date(`${exam.examDate}T${attendanceRecord.checkInTime}`);
+            if (isNaN(checkInDate.getTime())) return "Invalid";
+            checkInEpoch = Math.floor(checkInDate.getTime() / 1000);
+        }
+        if (!checkInEpoch) {
+            return AttendanceStatus.ABSENT;
+        }
+
+        // Correct RFID timezone offset if this is an RFID-recorded attendance
+        if (attendanceRecord.checkInEpochTime) {
+            checkInEpoch = checkInEpoch - (RFID_TIMEZONE_OFFSET_HOURS * 3600);
+            console.log("Applied RFID timezone correction:", -RFID_TIMEZONE_OFFSET_HOURS, "hours");
+        }
+
+        // Create exam start/end dates in local timezone
+        const examStartDate = new Date(`${exam.examDate}T${exam.startTime}`);
+        const examStartEpoch = Math.floor(examStartDate.getTime() / 1000);
+        const examEndEpoch = examStartEpoch + (exam.duration * 3600);
+
+        // Define grace period (e.g., 5 minutes = 300 seconds)
+        const gracePeriodSeconds = GRACE_PERIOD_MINUTES * 60;
+        const graceEndEpoch = examStartEpoch + gracePeriodSeconds;
+
+        // Comparisons using corrected epoch times
+        if (checkInEpoch < examStartEpoch || checkInEpoch > examEndEpoch) {
+            return "Invalid";
+        }
+
+        // Check-in within grace period is considered PRESENT
+        if (checkInEpoch <= graceEndEpoch) {
+            return AttendanceStatus.PRESENT;
+        }
+
+        // Check-in after grace period but before exam end is LATE
+        return AttendanceStatus.LATE;
+    };
+
+    const getExamStatus = (exam) => {
+        if (!exam) return 'Unknown';
+
+        const now = new Date();
+        const examStart = new Date(`${exam.examDate}T${exam.startTime}`);
+        const examEnd = new Date(examStart.getTime() + (exam.duration * 60 * 60 * 1000));
+
+        if (exam.status) {
+            return exam.status;
+        }
+
+        if (now < examStart) {
+            return 'Awaiting';
+        } else if (now >= examStart && now <= examEnd) {
+            return 'In Progress';
+        } else {
+            return 'Ended';
+        }
+    };
+
+    const getStatusColor = (status) => {
+        switch (status) {
+            case AttendanceStatus.PRESENT:
+            case 'active':
+            case 'in-progress':
+                return 'success';
+            case AttendanceStatus.LATE:
+                return 'warning';
+            case AttendanceStatus.ABSENT:
+            case 'Invalid':
+                return 'error';
+            case 'scheduled':
+                return 'info';
+            case 'completed':
+                return 'default';
+            default:
+                return 'default';
+        }
+    };
+
     const columns = [
         {
-            field: 'exam',
-            headerName: 'Exam',
-            width: 150,
+            field: 'examId',
+            headerName: 'Exam ID',
+            width: 100,
+            flex: 1,
             valueGetter: (value, row) => {
-                const examId = row?.currentExam;
+                return row?.currentExam || row?.examId;
+            },
+        },
+        {
+            field: 'exam',
+            headerName: 'Course',
+            flex: 2,
+            valueGetter: (value, row) => {
+                const examId = row?.currentExam || row?.examId;
                 const exam = exams.find(e => e.id === examId);
-                const course = courses.find(e => e.id === exam.courseCode)
+                if (!exam) return 'N/A';
+                const course = courses.find(c => c.id === exam.courseCode);
                 return course ? course.courseName : 'N/A';
+            },
+        },
+        {
+            field: 'examType',
+            headerName: 'Exam Type',
+            width: 100,
+            flex: 1,
+            valueGetter: (value, row) => {
+                const examId = row?.currentExam || row?.examId;
+                const exam = exams.find(e => e.id === examId);
+                return exam?.examType || 'N/A';
+            },
+        },
+        {
+            field: 'examDate',
+            headerName: 'Exam Date',
+            width: 100,
+            flex: 1,
+            valueGetter: (value, row) => {
+                const examId = row?.currentExam || row?.examId;
+                const exam = exams.find(e => e.id === examId);
+                return exam?.examDate || 'N/A';
+            },
+        },
+        {
+            field: 'examTime',
+            headerName: 'Exam Time',
+            width: 120,
+            flex: 1.5,
+            valueGetter: (value, row) => {
+                const examId = row?.currentExam || row?.examId;
+                const exam = exams.find(e => e.id === examId);
+                if (!exam) return 'N/A';
+                const endTime = exam.endTime || (() => {
+                    const start = new Date(`2000-01-01T${exam.startTime}`);
+                    const end = new Date(start.getTime() + (exam.duration * 60 * 60 * 1000));
+                    return end.toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit', hour12: false});
+                })();
+                return `${exam.startTime} - ${endTime}`;
+            },
+        },
+        {
+            field: 'duration',
+            headerName: 'Duration (hrs)',
+            width: 120,
+            valueGetter: (value, row) => {
+                const examId = row?.currentExam || row?.examId;
+                const exam = exams.find(e => e.id === examId);
+                return exam?.duration || 'N/A';
+            },
+        },
+        {
+            field: 'room',
+            headerName: 'Room',
+            width: 100,
+            valueGetter: (value, row) => {
+                const examId = row?.currentExam || row?.examId;
+                const exam = exams.find(e => e.id === examId);
+                return exam?.room || row?.examRoom || 'N/A';
             },
         },
         {
             field: 'student',
             headerName: 'Student',
-            width: 150,
+            flex: 2,
             valueGetter: (value, row) => {
                 let student;
                 if (row?.rfidTag) {
@@ -224,13 +406,18 @@ const AttendanceList = () => {
             field: 'checkIn',
             headerName: 'Check-In',
             type: 'dateTime',
-            width: 150,
+            flex: 1.5,
             valueGetter: (value, row) => getCheckInDate(row),
             renderCell: (params) => {
                 if (params.value) {
-                    return params.value.toLocaleTimeString('en-US', { timeZone: 'Africa/Accra' });
+                    return params.value.toLocaleString('en-GB', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: false,
+                    });
                 }
-                return '';
+                return 'Not checked in';
             },
         },
         {
@@ -241,36 +428,54 @@ const AttendanceList = () => {
             valueGetter: (value, row) => getCheckOutDate(row),
             renderCell: (params) => {
                 if (params.value) {
-                    return params.value.toLocaleTimeString('en-US', { timeZone: 'Africa/Accra' });
+                    return params.value.toLocaleString('en-GB', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: false,
+                    });
                 }
-                return '';
+                return 'Not checked out';
             },
         },
         {
-            field: 'status',
-            headerName: 'Status',
-            width: 100,
-            valueGetter: (value, row) => {
-                if (row?.status) {
-                    return row?.status;
-                }
-                const examId = row?.examId || row?.currentExam;
+            field: 'attendanceStatus',
+            headerName: 'Attendance Status',
+            flex: 1.5,
+            renderCell: (params) => {
+                const examId = params.row?.currentExam || params.row?.examId;
                 const exam = exams.find(e => e.id === examId);
-                const checkInStr = row?.checkInTime;
-                if (checkInStr && exam && examSettings?.allowLateEntry) {
-                    let checkIn;
-                    if (checkInStr.includes('T')) {
-                        checkIn = new Date(checkInStr);
-                    } else {
-                        checkIn = new Date(`${exam.examDate}T${checkInStr}`);
-                    }
-                    const examStart = new Date(`${exam.examDate}T${exam.startTime}`);
-                    const gracePeriodMs = examSettings.lateEntryGracePeriod * 60 * 1000;
-                    if (checkIn > new Date(examStart.getTime() + gracePeriodMs)) {
-                        return AttendanceStatus.LATE;
-                    }
-                }
-                return checkInStr ? AttendanceStatus.PRESENT : AttendanceStatus.ABSENT;
+                const status = getAttendanceStatus(exam, params.row);
+                const color = getStatusColor(status);
+
+                return (
+                    <Chip
+                        label={status}
+                        color={color}
+                        size="small"
+                        variant="outlined"
+                    />
+                );
+            },
+        },
+        {
+            field: 'examStatus',
+            headerName: 'Exam Status',
+            width: 120,
+            renderCell: (params) => {
+                const examId = params.row?.currentExam || params.row?.examId;
+                const exam = exams.find(e => e.id === examId);
+                const status = getExamStatus(exam);
+                const color = getStatusColor(status);
+
+                return (
+                    <Chip
+                        label={status}
+                        color={color}
+                        size="small"
+                        variant="outlined"
+                    />
+                );
             },
         },
         {
@@ -282,12 +487,7 @@ const AttendanceList = () => {
                 return device ? device.deviceName : row?.deviceName || value || 'N/A';
             },
         },
-        {
-            field: 'examRoom',
-            headerName: 'Exam Room',
-            width: 100,
-        },
-        { field: 'emailSent', headerName: 'Email Sent', width: 100, type: 'boolean' },
+        {field: 'emailSent', headerName: 'Email Sent', width: 100, type: 'boolean'},
         {
             field: 'actions',
             headerName: 'Actions',
@@ -295,177 +495,90 @@ const AttendanceList = () => {
             renderCell: (params) => {
                 if (!isAdmin) return null;
                 if (!params.row?.rfidTag) {
-                    return <Typography color="textSecondary">Device Recorded</Typography>;
+                    return <Typography color="textSecondary" variant="caption">RFID Recorded</Typography>;
                 }
                 return (
-                    <>
-                        <Button onClick={() => handleOpen(params.row)} disabled={!isAdmin}>Edit</Button>
-                        <Button onClick={() => handleDelete(params.row)} color="error" disabled={!isAdmin}>Delete</Button>
-                    </>
+                    <Box sx={{display: 'flex', gap: 1}}>
+                        <Button
+                            size="small"
+                            onClick={() => handleOpen(params.row)}
+                            disabled={!isAdmin}
+                        >
+                            Edit
+                        </Button>
+                        <Button
+                            size="small"
+                            onClick={() => handleDelete(params.row)}
+                            color="error"
+                            disabled={!isAdmin}
+                        >
+                            Delete
+                        </Button>
+                    </Box>
                 );
             },
         },
     ];
 
     return (
-        <Box sx={{ p: 3 }}>
-            <Typography variant="h4" gutterBottom>Attendance</Typography>
+        <Box sx={{p: 3}}>
+            <Typography variant="h4" gutterBottom>Attendance Management</Typography>
+            <OngoingExamsSummary
+                exams={exams}
+                courses={courses}
+                attendance={attendance}
+                getExamStatus={getExamStatus}
+                getStatusColor={getStatusColor}
+                getAttendanceStatus={getAttendanceStatus}
+                AttendanceStatus={AttendanceStatus}
+            />
             {isAdmin && (
                 <Button
                     variant="contained"
                     onClick={() => handleOpen()}
-                    sx={{ mb: 2 }}
+                    sx={{mb: 2}}
                 >
-                    Add Attendance
+                    Add Manual Attendance
                 </Button>
             )}
-            {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-            <div style={{ height: 400, width: '100%' }}>
-                <DataGrid
-                    rows={attendance}
-                    columns={columns}
-                    pageSize={5}
-                    rowsPerPageOptions={[5]}
-                    disableSelectionOnClick
-                    loading={loading}
-                />
-            </div>
-
+            {error && <Alert severity="error" sx={{mb: 2}}>{error}</Alert>}
+            <AttendanceTable
+                attendance={attendance}
+                columns={columns}
+                loading={loading}
+                exams={exams}
+                handleEdit={handleOpen}
+                handleDelete={handleDelete}
+                courses={courses}
+                students={students}
+                devices={devices}
+                getCheckInDate={getCheckInDate}
+                getCheckOutDate={getCheckOutDate}
+                getAttendanceStatus={getAttendanceStatus}
+                getExamStatus={getExamStatus}
+                getStatusColor={getStatusColor}
+                AttendanceStatus={AttendanceStatus}
+            />
             {isAdmin && (
-                <Dialog open={open} onClose={handleClose}>
-                    <DialogTitle>{editingAttendance ? 'Edit Attendance' : 'Add Attendance'}</DialogTitle>
-                    <Formik
-                        initialValues={
-                            editingAttendance || {
-                                examId: '',
-                                studentId: '',
-                                rfidTag: '',
-                                checkInTime: '',
-                                checkOutTime: '',
-                                status: AttendanceStatus.PRESENT,
-                                deviceId: '',
-                                emailSent: false,
-                            }
-                        }
-                        validationSchema={validationSchema}
-                        onSubmit={handleSubmit}
-                    >
-                        {({ errors, touched, values, setFieldValue }) => (
-                            <Form>
-                                <DialogContent>
-                                    <FormControl fullWidth margin="normal">
-                                        <InputLabel>Exam</InputLabel>
-                                        <Field
-                                            as={Select}
-                                            name="examId"
-                                            value={values.examId}
-                                            onChange={(e) => setFieldValue('examId', e.target.value)}
-                                            error={touched.examId && !!errors.examId}
-                                        >
-                                            {exams.map(exam => (
-                                                <MenuItem key={exam.id} value={exam.id}>
-                                                    {exam.examName}
-                                                </MenuItem>
-                                            ))}
-                                        </Field>
-                                    </FormControl>
-                                    <FormControl fullWidth margin="normal">
-                                        <InputLabel>Student</InputLabel>
-                                        <Field
-                                            as={Select}
-                                            name="studentId"
-                                            value={values.studentId}
-                                            onChange={(e) => {
-                                                const studentId = e.target.value;
-                                                const student = students.find(s => s.id === studentId);
-                                                setFieldValue('studentId', studentId);
-                                                setFieldValue('rfidTag', student ? student.rfidTag : '');
-                                            }}
-                                            error={touched.studentId && !!errors.studentId}
-                                        >
-                                            {students.map(student => (
-                                                <MenuItem key={student.id} value={student.id}>
-                                                    {student.name}
-                                                </MenuItem>
-                                            ))}
-                                        </Field>
-                                    </FormControl>
-                                    <Field
-                                        as={TextField}
-                                        name="rfidTag"
-                                        label="RFID Tag"
-                                        fullWidth
-                                        margin="normal"
-                                        error={touched.rfidTag && !!errors.rfidTag}
-                                        helperText={touched.rfidTag && errors.rfidTag}
-                                    />
-                                    <Field
-                                        as={TextField}
-                                        name="checkInTime"
-                                        label="Check-In Time (YYYY-MM-DDTHH:MM:SSZ)"
-                                        fullWidth
-                                        margin="normal"
-                                        error={touched.checkInTime && !!errors.checkInTime}
-                                        helperText={touched.checkInTime && errors.checkInTime}
-                                    />
-                                    <Field
-                                        as={TextField}
-                                        name="checkOutTime"
-                                        label="Check-Out Time (YYYY-MM-DDTHH:MM:SSZ)"
-                                        fullWidth
-                                        margin="normal"
-                                        error={touched.checkOutTime && !!errors.checkOutTime}
-                                        helperText={touched.checkOutTime && errors.checkOutTime}
-                                    />
-                                    <FormControl fullWidth margin="normal">
-                                        <InputLabel>Status</InputLabel>
-                                        <Field
-                                            as={Select}
-                                            name="status"
-                                            value={values.status}
-                                            onChange={(e) => setFieldValue('status', e.target.value)}
-                                            error={touched.status && !!errors.status}
-                                        >
-                                            <MenuItem value={AttendanceStatus.PRESENT}>Present</MenuItem>
-                                            <MenuItem value={AttendanceStatus.ABSENT}>Absent</MenuItem>
-                                            <MenuItem value={AttendanceStatus.LATE}>Late</MenuItem>
-                                        </Field>
-                                    </FormControl>
-                                    <FormControl fullWidth margin="normal">
-                                        <InputLabel>Device</InputLabel>
-                                        <Field
-                                            as={Select}
-                                            name="deviceId"
-                                            value={values.deviceId}
-                                            onChange={(e) => setFieldValue('deviceId', e.target.value)}
-                                            error={touched.deviceId && !!errors.deviceId}
-                                        >
-                                            {devices.map(device => (
-                                                <MenuItem key={device.id} value={device.id}>
-                                                    {device.deviceName}
-                                                </MenuItem>
-                                            ))}
-                                        </Field>
-                                    </FormControl>
-                                    <Field
-                                        as={Switch}
-                                        name="emailSent"
-                                        checked={values.emailSent}
-                                        label="Email Sent"
-                                    />
-                                    {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
-                                </DialogContent>
-                                <DialogActions>
-                                    <Button onClick={handleClose} disabled={loading}>Cancel</Button>
-                                    <Button type="submit" variant="contained" disabled={loading}>
-                                        {loading ? 'Saving...' : 'Save'}
-                                    </Button>
-                                </DialogActions>
-                            </Form>
-                        )}
-                    </Formik>
-                </Dialog>
+                <AttendanceFormDialog
+                    open={open}
+                    handleClose={handleClose}
+                    editingAttendance={editingAttendance}
+                    exams={exams}
+                    courses={courses}
+                    students={students}
+                    handleSubmit={handleSubmit}
+                    validationSchema={validationSchema}
+                    error={error}
+                    loading={loading}
+                    AttendanceStatus={AttendanceStatus}
+                />
             )}
+            <ConfirmDeleteDialog
+                openConfirm={openConfirm}
+                setOpenConfirm={setOpenConfirm}
+                confirmDelete={confirmDelete}
+            />
         </Box>
     );
 };

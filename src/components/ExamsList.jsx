@@ -88,7 +88,7 @@ const ExamsList = () => {
         if (!exam.examDate) newErrors.examDate = 'Exam date is required';
         if (!exam.startTime) newErrors.startTime = 'Start time is required';
         if (!exam.endTime) newErrors.endTime = 'End time is required';
-        if (!exam.duration || exam.duration <= 0) newErrors.duration = 'Duration must be greater than 0';
+        if (!exam.duration || parseFloat(exam.duration) <= 0) newErrors.duration = 'Duration must be greater than 0';
         if (!exam.room.trim()) newErrors.room = 'Room is required';
         if (!exam.status) newErrors.status = 'Status is required';
 
@@ -175,7 +175,7 @@ const ExamsList = () => {
             const docRef = doc(collection(db, 'exams'));
             const newExamData = {
                 ...newExam,
-                duration: parseFloat(newExam.duration),
+                duration: String(newExam.duration),
                 createdAt: serverTimestamp(),
                 updatedAt: serverTimestamp(),
             };
@@ -198,7 +198,7 @@ const ExamsList = () => {
             const docRef = doc(db, 'exams', selectedExam.id);
             const updatedExamData = {
                 ...newExam,
-                duration: parseFloat(newExam.duration),
+                duration: String(newExam.duration),
                 updatedAt: serverTimestamp(),
             };
             await updateDoc(docRef, updatedExamData);

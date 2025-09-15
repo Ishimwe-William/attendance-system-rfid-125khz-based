@@ -10,7 +10,7 @@ import {
     deleteDoc,
     serverTimestamp
 } from 'firebase/firestore';
-import {db} from '../config/firebase';
+import {COLLECTIONS, db} from '../config/firebase';
 import {DataGrid} from '@mui/x-data-grid';
 import {
     Box,
@@ -35,6 +35,7 @@ const DevicesList = () => {
     const [exams, setExams] = useState([]);
     const [open, setOpen] = useState(false);
     const [selectedDevice, setSelectedDevice] = useState(null);
+    const [courses, setCourses] = useState([]);
     const [isEdit, setIsEdit] = useState(false);
     const [errors, setErrors] = useState({});
     const [snackbar, setSnackbar] = useState({open: false, message: '', severity: 'success'});
@@ -63,7 +64,17 @@ const DevicesList = () => {
         const unsubscribe = onSnapshot(examsQuery, (snapshot) => {
             setExams(snapshot.docs.map(doc => ({id: doc.id, ...doc.data()})));
         });
-        return () => unsubscribe();
+
+        // Fetch course
+        const courseQuery = query(collection(db, COLLECTIONS.COURSES));
+        const unsubscribeCourse = onSnapshot(courseQuery, (snapshot) => {
+            setCourses(snapshot.docs.map(doc => ({id: doc.id, ...doc.data()})));
+        });
+
+        return () => {
+            unsubscribe();
+            unsubscribeCourse();
+        }
     }, []);
 
     // Auto-populate exam room when exam is selected
@@ -210,7 +221,8 @@ const DevicesList = () => {
 
     const getExamInfo = (examId) => {
         const exam = exams.find(e => e.id === examId);
-        return exam ? `${exam.examType} - ${exam.examDate}` : 'No exam assigned';
+        const course1 = courses.find(e => e.id === exam?.courseCode);
+        return exam ? `${course1?.courseCode} [${exam.examType}] - ${exam.examDate}` : 'No exam assigned';
     };
 
     const getStatusColor = (status, lastSeen) => {
@@ -226,16 +238,10 @@ const DevicesList = () => {
         return '#757575';
     };
 
-    const getStatusText = (status, lastSeen) => {
+    const getStatusText = (status) => {
         if (status === 'inactive') return 'Inactive';
         if (status === 'maintenance') return 'Maintenance';
-
-        if (lastSeen) {
-            const timeDiff = Date.now() - lastSeen.getTime();
-            const isOnline = timeDiff < 5 * 60 * 1000;
-            return isOnline ? 'Online' : 'Offline';
-        }
-        return 'Unknown';
+        return 'Online';
     };
 
     const columns = [
@@ -383,7 +389,8 @@ const DevicesList = () => {
                             </MenuItem>
                             {exams.filter(exam => exam.status === 'active').map((exam) => (
                                 <MenuItem key={exam.id} value={exam.id}>
-                                    {exam.examType} - {exam.examDate} ({exam.room})
+                                    {courses.find((e) => e.id === exam.courseCode).courseCode} [{exam.examType}]
+                                    - {exam.examDate} ({exam.room})
                                 </MenuItem>
                             ))}
                         </Select>

@@ -21,7 +21,7 @@ import {
     People,
     Computer,
     Assignment,
-    Settings, ResetTv,
+    ResetTv,
 } from '@mui/icons-material';
 import {Link, useNavigate} from 'react-router-dom';
 import {useAuth} from '../context/AuthContext';
@@ -173,12 +173,6 @@ const NavigationBar = () => {
                                                     <People/>
                                                 </ListItemIcon>
                                                 Users Management
-                                            </MenuItem>
-                                            <MenuItem component={Link} to="/settings" onClick={handleMenuClose}>
-                                                <ListItemIcon>
-                                                    <Settings/>
-                                                </ListItemIcon>
-                                                Settings
                                             </MenuItem>
                                         </div>
                                     )}

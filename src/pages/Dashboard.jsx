@@ -85,18 +85,18 @@ const Dashboard = () => {
     }, []);
 
     const columns = [
-        { field: 'examId', headerName: 'Exam ID', width: 120,
+        { field: 'examId', headerName: 'Exam ID', width: 150, flex: 1,
             valueGetter: (value, row) => {
                 return row?.currentExam || row?.examId;
             },
         },
-        { field: 'studentId', headerName: 'Student ID', width: 120 },
+        { field: 'studentId', headerName: 'Student ID', width: 120, flex: 1, },
         { field: 'rfidTag', headerName: 'RFID Tag', width: 120,
             valueGetter: (value, row) => row?.rfidTag || row?.studentId,
         },
         { field: 'checkInTime', headerName: 'Check-In', width: 150, },
         { field: 'checkOutTime', headerName: 'Check-Out', width: 150 },
-        { field: 'status', headerName: 'Status', width: 100,
+        { field: 'status', headerName: 'Status', width: 200, flex: 1,
             valueGetter: (value, row) => row?.status || "-- View on attendance page --",
         },
         { field: 'deviceId', headerName: 'Device', width: 100 },

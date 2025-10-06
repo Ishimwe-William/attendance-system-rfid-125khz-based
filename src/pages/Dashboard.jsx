@@ -91,7 +91,7 @@ const Dashboard = () => {
             },
         },
         { field: 'studentId', headerName: 'Student ID', width: 120, flex: 1, },
-        { field: 'rfidTag', headerName: 'RFID Tag', width: 120,
+        { field: 'rfidTag', headerName: 'RFID Tag', flex: 1, width: 120,
             valueGetter: (value, row) => row?.rfidTag || row?.studentId,
         },
         { field: 'checkInTime', headerName: 'Check-In', width: 150, },
@@ -99,7 +99,7 @@ const Dashboard = () => {
         { field: 'status', headerName: 'Status', width: 200, flex: 1,
             valueGetter: (value, row) => row?.status || "-- View on attendance page --",
         },
-        { field: 'deviceId', headerName: 'Device', width: 100 },
+        { field: 'deviceId', headerName: 'Device', flex: 1, width: 100 },
     ];
 
     const navigationItems = [

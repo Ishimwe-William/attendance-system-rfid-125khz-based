@@ -38,7 +38,7 @@ import {
 import {
     collection,
     getDocs,
-    addDoc,
+    setDoc,
     updateDoc,
     deleteDoc,
     doc,
@@ -254,24 +254,37 @@ const StudentsList = () => {
         try {
             setError('');
 
+            const rfidTag = formData.rfidTag.trim();
+
             const studentData = {
                 name: formData.name.trim(),
                 email: formData.email.trim(),
-                rfidTag: formData.rfidTag.trim(),
+                rfidTag: rfidTag,
                 enrolledCourses: editingStudent?.enrolledCourses || []
             };
 
             if (editingStudent) {
-                // Update existing student
-                const studentRef = doc(db, 'students', editingStudent.id);
-                await updateDoc(studentRef, {
-                    ...studentData,
-                    updatedAt: new Date()
-                });
-                setSuccess('Student updated successfully');
+                if (editingStudent.id === rfidTag) {
+                    // Update existing student if RFID hasn't changed
+                    const studentRef = doc(db, 'students', rfidTag);
+                    await updateDoc(studentRef, {
+                        ...studentData,
+                        updatedAt: new Date()
+                    });
+                    setSuccess('Student updated successfully');
+                } else {
+                    // RFID changed: create new doc with new RFID as ID, then delete old
+                    await setDoc(doc(db, 'students', rfidTag), {
+                        ...studentData,
+                        createdAt: editingStudent.createdAt || new Date(), // Preserve original createdAt if available
+                        updatedAt: new Date()
+                    });
+                    await deleteDoc(doc(db, 'students', editingStudent.id));
+                    setSuccess('Student updated successfully (RFID changed)');
+                }
             } else {
-                // Create new student
-                await addDoc(collection(db, 'students'), {
+                // Create new student with RFID as doc ID
+                await setDoc(doc(db, 'students', rfidTag), {
                     ...studentData,
                     createdAt: new Date()
                 });
@@ -395,14 +408,17 @@ const StudentsList = () => {
                                     <TableCell>
                                         <Stack direction="row" spacing={1} flexWrap="wrap">
                                             {student.enrolledCourses?.length > 0 ? (
-                                                student.enrolledCourses.map((course, index) => (
-                                                    <Chip
-                                                        key={index}
-                                                        label={course}
-                                                        size="small"
-                                                        variant="outlined"
-                                                    />
-                                                ))
+                                                student.enrolledCourses.map((courseCode, index) => {
+                                                    const course = courses.find(c => c.courseCode === courseCode);
+                                                    return (
+                                                        <Chip
+                                                            key={index}
+                                                            label={course ? `${course.courseCode} - ${course.courseName}` : courseCode}
+                                                            size="small"
+                                                            variant="outlined"
+                                                        />
+                                                    );
+                                                })
                                             ) : (
                                                 <Typography variant="body2" color="text.secondary">
                                                     No courses

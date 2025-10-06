@@ -14,3 +14,6 @@ Body data structure like this:
   }
 }
 ```
+
+## Hosted Page
+Test the app via [github.io page](https://ishimwe-william.github.io/attendance-system-rfid-125khz-based) here.

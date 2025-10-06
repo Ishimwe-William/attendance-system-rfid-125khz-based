@@ -156,7 +156,7 @@ const AttendanceList = () => {
     const confirmDelete = async () => {
         try {
             if (!isAdmin) throw new Error('Unauthorized');
-            if (deletingRow?.rfidTag) throw new Error('Cannot delete RFID recorded attendance.');
+            if (!deletingRow?.rfidTag) throw new Error('Cannot delete RFID recorded attendance.');
             await deleteDocument(COLLECTIONS.ATTENDANCE, deletingRow?.id);
             setOpenConfirm(false);
             setDeletingRow(null);

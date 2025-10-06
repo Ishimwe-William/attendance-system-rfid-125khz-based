@@ -17,3 +17,7 @@ Body data structure like this:
 
 ## Hosted Page
 Test the app via [github.io page](https://ishimwe-william.github.io/attendance-system-rfid-125khz-based) here.
+Run this command to update the website with changes made.
+```bash
+  npm run deploy
+```

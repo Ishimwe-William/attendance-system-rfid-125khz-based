@@ -13,6 +13,7 @@ import StudentsList from './components/StudentsList';
 import PrivateRoute from "./components/PrivateRoute";
 import UsersList from "./components/UsersList";
 import NavigationBar from "./components/NavigationBar";
+import ExamAttendance from "./components/attendance/ExamAttendance";
 
 const App = () => {
     return (
@@ -24,6 +25,7 @@ const App = () => {
                     <Route path="/signup" element={<Signup/>}/>
                     <Route path="/" element={<PrivateRoute><Dashboard/></PrivateRoute>}/>
                     <Route path="/attendance" element={<PrivateRoute><AttendanceList/></PrivateRoute>}/>
+                    <Route path="/attendance/:examId" element={<PrivateRoute><ExamAttendance/></PrivateRoute>}/>
                     <Route path="/courses" element={<PrivateRoute adminOnly={true}><CoursesList/></PrivateRoute>}/>
                     <Route path="/devices" element={<PrivateRoute adminOnly={true}><DevicesList/></PrivateRoute>}/>
                     <Route path="/exams" element={<PrivateRoute adminOnly={true}><ExamsList/></PrivateRoute>}/>

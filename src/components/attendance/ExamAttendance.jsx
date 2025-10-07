@@ -1,22 +1,25 @@
 import React, {useState, useEffect} from 'react';
+import {useParams, useNavigate} from 'react-router-dom';
 import {collection, onSnapshot, query} from 'firebase/firestore';
-import {db, COLLECTIONS} from '../config/firebase';
-import {useDatabase} from '../hooks/useDatabase';
-import {useAuth} from '../context/AuthContext';
-import {Box, Typography, Button, Alert, Chip} from '@mui/material';
+import {db, COLLECTIONS} from '../../config/firebase';
+import {useDatabase} from '../../hooks/useDatabase';
+import {useAuth} from '../../context/AuthContext';
+import {Box, Typography, Button, Alert, Chip, Card, CardContent, Grid, IconButton} from '@mui/material';
+import {ArrowBack as ArrowBackIcon} from '@mui/icons-material';
 import * as Yup from 'yup';
-import OngoingExamsSummary from './attendance/OngoingExamsSummary';
-import AttendanceFormDialog from './attendance/AttendanceFormDialog';
-import ConfirmDeleteDialog from './attendance/ConfirmDeleteDialog';
-import AttendanceTable from './attendance/AttendanceTable';
-import {AttendanceStatus} from '../models/types';
+import AttendanceFormDialog from './AttendanceFormDialog';
+import ConfirmDeleteDialog from './ConfirmDeleteDialog';
+import AttendanceTable from './AttendanceTable';
+import {AttendanceStatus} from '../../models/types';
 
-const AttendanceList = () => {
+const ExamAttendance = () => {
+    const {examId} = useParams();
+    const navigate = useNavigate();
     const {user} = useAuth();
     const isAdmin = user?.role === 'admin';
     const [attendance, setAttendance] = useState([]);
-    const [exams, setExams] = useState([]);
-    const [courses, setCourses] = useState([]);
+    const [exam, setExam] = useState(null);
+    const [course, setCourse] = useState(null);
     const [students, setStudents] = useState([]);
     const [devices, setDevices] = useState([]);
     const [open, setOpen] = useState(false);
@@ -27,39 +30,56 @@ const AttendanceList = () => {
     const {addDocument, updateDocument, deleteDocument, loading} = useDatabase();
 
     useEffect(() => {
+        // Fetch exam
+        const examQuery = query(collection(db, COLLECTIONS.EXAMS));
+        const unsubscribeExam = onSnapshot(examQuery, (snapshot) => {
+            const examData = snapshot.docs.find(doc => doc.id === examId);
+            if (examData) {
+                setExam({id: examData.id, ...examData.data()});
+            }
+        });
+
+        // Fetch attendance for this exam
         const attendanceQuery = query(collection(db, COLLECTIONS.ATTENDANCE));
         const unsubscribeAttendance = onSnapshot(attendanceQuery, (snapshot) => {
-            setAttendance(snapshot.docs.map(doc => ({id: doc.id, ...doc.data()})));
+            const records = snapshot.docs
+                .map(doc => ({id: doc.id, ...doc.data()}))
+                .filter(record => (record.currentExam || record.examId) === examId);
+            setAttendance(records);
         });
 
-        const examQuery = query(collection(db, COLLECTIONS.EXAMS));
-        const unsubscribeExams = onSnapshot(examQuery, (snapshot) => {
-            setExams(snapshot.docs.map(doc => ({id: doc.id, ...doc.data()})));
-        });
-
-        const courseQuery = query(collection(db, COLLECTIONS.COURSES));
-        const unsubscribeCourse = onSnapshot(courseQuery, (snapshot) => {
-            setCourses(snapshot.docs.map(doc => ({id: doc.id, ...doc.data()})));
-        });
-
+        // Fetch students
         const studentQuery = query(collection(db, COLLECTIONS.STUDENTS));
         const unsubscribeStudents = onSnapshot(studentQuery, (snapshot) => {
             setStudents(snapshot.docs.map(doc => ({id: doc.id, ...doc.data()})));
         });
 
+        // Fetch devices
         const deviceQuery = query(collection(db, COLLECTIONS.DEVICES));
         const unsubscribeDevices = onSnapshot(deviceQuery, (snapshot) => {
             setDevices(snapshot.docs.map(doc => ({id: doc.id, ...doc.data()})));
         });
 
         return () => {
+            unsubscribeExam();
             unsubscribeAttendance();
-            unsubscribeExams();
-            unsubscribeCourse();
             unsubscribeStudents();
             unsubscribeDevices();
         };
-    }, []);
+    }, [examId]);
+
+    useEffect(() => {
+        if (exam) {
+            const courseQuery = query(collection(db, COLLECTIONS.COURSES));
+            const unsubscribeCourse = onSnapshot(courseQuery, (snapshot) => {
+                const courseData = snapshot.docs.find(doc => doc.id === exam.courseCode);
+                if (courseData) {
+                    setCourse({id: courseData.id, ...courseData.data()});
+                }
+            });
+            return () => unsubscribeCourse();
+        }
+    }, [exam]);
 
     const handleOpen = (record = null) => {
         if (!isAdmin) return;
@@ -82,14 +102,15 @@ const AttendanceList = () => {
         try {
             values.deviceId = "Manual";
             values.deviceName = "-- Manual --";
+            values.examId = examId;
+
             const student = students.find((s) => s.id === values.studentId);
             if (student && values.rfidTag !== student.rfidTag) {
                 throw new Error("RFID tag does not match selected student.");
             }
 
-            const exam = exams.find((e) => e.id === values.examId);
             if (!exam) {
-                throw new Error("Selected exam not found.");
+                throw new Error("Exam not found.");
             }
 
             if (values.checkInTime) {
@@ -112,21 +133,10 @@ const AttendanceList = () => {
                 if (checkInDate > examEnd) {
                     throw new Error(`Cannot check in after exam ends.`);
                 }
-            } else {
-                const now = new Date();
-                const examStart = new Date(`${exam.examDate}T${exam.startTime}`);
-                const examEnd = new Date(examStart.getTime() + (exam.duration * 60 * 60 * 1000));
-
-                if (now >= examStart && now <= examEnd) {
-                    values.checkInTime = now.toISOString();
-                }
             }
 
             if (values.checkOutTime) {
                 const checkOutDate = new Date(values.checkOutTime);
-                const examEnd = new Date(`${exam.examDate}T${exam.startTime}`);
-                examEnd.setTime(examEnd.getTime() + (exam.duration * 60 * 60 * 1000));
-
                 const checkOutDateOnly = values.checkOutTime.split('T')[0];
                 if (checkOutDateOnly !== exam.examDate) {
                     throw new Error(`Check-out date must match exam date (${exam.examDate}).`);
@@ -167,7 +177,6 @@ const AttendanceList = () => {
     };
 
     const validationSchema = Yup.object({
-        examId: Yup.string().required('Required'),
         studentId: Yup.string().required('Required'),
         rfidTag: Yup.string().required('Required'),
         checkInTime: Yup.string().test('check-in-time', 'Invalid date and time format', (value) => {
@@ -210,9 +219,8 @@ const AttendanceList = () => {
         return null;
     };
 
-// Add this constant at the top of your file
-    const RFID_TIMEZONE_OFFSET_HOURS = 2; // RFID device is 2 hours ahead
-    const GRACE_PERIOD_MINUTES = 10; // Students can check in up to 5 minutes after exam start and still be "PRESENT"
+    const RFID_TIMEZONE_OFFSET_HOURS = 2;
+    const GRACE_PERIOD_MINUTES = 30;
 
     const getAttendanceStatus = (exam, attendanceRecord) => {
         if (!exam) return "Unknown";
@@ -221,7 +229,6 @@ const AttendanceList = () => {
             return attendanceRecord.status;
         }
 
-        // Prioritize epoch if available; fallback to parsing string
         let checkInEpoch = attendanceRecord.checkInEpochTime;
         if (!checkInEpoch && attendanceRecord.checkInTime) {
             const checkInDate = new Date(`${exam.examDate}T${attendanceRecord.checkInTime}`);
@@ -232,32 +239,28 @@ const AttendanceList = () => {
             return AttendanceStatus.ABSENT;
         }
 
-        // Correct RFID timezone offset if this is an RFID-recorded attendance
         if (attendanceRecord.checkInEpochTime) {
             checkInEpoch = checkInEpoch - (RFID_TIMEZONE_OFFSET_HOURS * 3600);
-            console.log("Applied RFID timezone correction:", -RFID_TIMEZONE_OFFSET_HOURS, "hours");
         }
 
-        // Create exam start/end dates in local timezone
         const examStartDate = new Date(`${exam.examDate}T${exam.startTime}`);
         const examStartEpoch = Math.floor(examStartDate.getTime() / 1000);
         const examEndEpoch = examStartEpoch + (exam.duration * 3600);
 
-        // Define grace period (e.g., 5 minutes = 300 seconds)
+        const earlyCheckInSeconds = 10 * 60;
+        const earlyCheckInEpoch = examStartEpoch - earlyCheckInSeconds;
+
         const gracePeriodSeconds = GRACE_PERIOD_MINUTES * 60;
         const graceEndEpoch = examStartEpoch + gracePeriodSeconds;
 
-        // Comparisons using corrected epoch times
-        if (checkInEpoch < examStartEpoch || checkInEpoch > examEndEpoch) {
+        if (checkInEpoch < earlyCheckInEpoch || checkInEpoch > examEndEpoch) {
             return "Invalid";
         }
 
-        // Check-in within grace period is considered PRESENT
         if (checkInEpoch <= graceEndEpoch) {
             return AttendanceStatus.PRESENT;
         }
 
-        // Check-in after grace period but before exam end is LATE
         return AttendanceStatus.LATE;
     };
 
@@ -284,17 +287,16 @@ const AttendanceList = () => {
     const getStatusColor = (status) => {
         switch (status) {
             case AttendanceStatus.PRESENT:
-            case 'active':
-            case 'in-progress':
+            case 'In Progress':
                 return 'success';
             case AttendanceStatus.LATE:
                 return 'warning';
             case AttendanceStatus.ABSENT:
             case 'Invalid':
                 return 'error';
-            case 'scheduled':
+            case 'Awaiting':
                 return 'info';
-            case 'completed':
+            case 'Ended':
                 return 'default';
             default:
                 return 'default';
@@ -302,86 +304,6 @@ const AttendanceList = () => {
     };
 
     const columns = [
-        {
-            field: 'examId',
-            headerName: 'Exam ID',
-            width: 100,
-            flex: 1,
-            valueGetter: (value, row) => {
-                return row?.currentExam || row?.examId;
-            },
-        },
-        {
-            field: 'exam',
-            headerName: 'Course',
-            flex: 2,
-            valueGetter: (value, row) => {
-                const examId = row?.currentExam || row?.examId;
-                const exam = exams.find(e => e.id === examId);
-                if (!exam) return 'N/A';
-                const course = courses.find(c => c.id === exam.courseCode);
-                return course ? course.courseName : 'N/A';
-            },
-        },
-        {
-            field: 'examType',
-            headerName: 'Exam Type',
-            width: 100,
-            flex: 1,
-            valueGetter: (value, row) => {
-                const examId = row?.currentExam || row?.examId;
-                const exam = exams.find(e => e.id === examId);
-                return exam?.examType || 'N/A';
-            },
-        },
-        {
-            field: 'examDate',
-            headerName: 'Exam Date',
-            width: 100,
-            flex: 1,
-            valueGetter: (value, row) => {
-                const examId = row?.currentExam || row?.examId;
-                const exam = exams.find(e => e.id === examId);
-                return exam?.examDate || 'N/A';
-            },
-        },
-        {
-            field: 'examTime',
-            headerName: 'Exam Time',
-            width: 120,
-            flex: 1.5,
-            valueGetter: (value, row) => {
-                const examId = row?.currentExam || row?.examId;
-                const exam = exams.find(e => e.id === examId);
-                if (!exam) return 'N/A';
-                const endTime = exam.endTime || (() => {
-                    const start = new Date(`2000-01-01T${exam.startTime}`);
-                    const end = new Date(start.getTime() + (exam.duration * 60 * 60 * 1000));
-                    return end.toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit', hour12: false});
-                })();
-                return `${exam.startTime} - ${endTime}`;
-            },
-        },
-        {
-            field: 'duration',
-            headerName: 'Duration (hrs)',
-            width: 120,
-            valueGetter: (value, row) => {
-                const examId = row?.currentExam || row?.examId;
-                const exam = exams.find(e => e.id === examId);
-                return exam?.duration || 'N/A';
-            },
-        },
-        {
-            field: 'room',
-            headerName: 'Room',
-            width: 100,
-            valueGetter: (value, row) => {
-                const examId = row?.currentExam || row?.examId;
-                const exam = exams.find(e => e.id === examId);
-                return exam?.room || row?.examRoom || 'N/A';
-            },
-        },
         {
             field: 'student',
             headerName: 'Student',
@@ -440,34 +362,11 @@ const AttendanceList = () => {
         },
         {
             field: 'attendanceStatus',
-            headerName: 'Attendance Status',
-            flex: 1.5,
+            headerName: 'Status',
+            flex: 1,
             renderCell: (params) => {
-                const examId = params.row?.currentExam || params.row?.examId;
-                const exam = exams.find(e => e.id === examId);
                 const status = getAttendanceStatus(exam, params.row);
                 const color = getStatusColor(status);
-
-                return (
-                    <Chip
-                        label={status}
-                        color={color}
-                        size="small"
-                        variant="outlined"
-                    />
-                );
-            },
-        },
-        {
-            field: 'examStatus',
-            headerName: 'Exam Status',
-            width: 120,
-            renderCell: (params) => {
-                const examId = params.row?.currentExam || params.row?.examId;
-                const exam = exams.find(e => e.id === examId);
-                const status = getExamStatus(exam);
-                const color = getStatusColor(status);
-
                 return (
                     <Chip
                         label={status}
@@ -520,18 +419,79 @@ const AttendanceList = () => {
         },
     ];
 
+    if (!exam) {
+        return (
+            <Box sx={{p: 3}}>
+                <Typography>Loading exam details...</Typography>
+            </Box>
+        );
+    }
+
+    const examStatus = getExamStatus(exam);
+    const endTime = exam.endTime || (() => {
+        const start = new Date(`2000-01-01T${exam.startTime}`);
+        const end = new Date(start.getTime() + (exam.duration * 60 * 60 * 1000));
+        return end.toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit', hour12: false});
+    })();
+
+    const statusCounts = {
+        present: 0,
+        late: 0,
+        absent: 0
+    };
+
+    attendance.forEach(record => {
+        const status = getAttendanceStatus(exam, record);
+        if (status === AttendanceStatus.PRESENT) statusCounts.present++;
+        else if (status === AttendanceStatus.LATE) statusCounts.late++;
+        else if (status === AttendanceStatus.ABSENT) statusCounts.absent++;
+    });
+
     return (
         <Box sx={{p: 3}}>
-            <Typography variant="h4" gutterBottom>Attendance Management</Typography>
-            <OngoingExamsSummary
-                exams={exams}
-                courses={courses}
-                attendance={attendance}
-                getExamStatus={getExamStatus}
-                getStatusColor={getStatusColor}
-                getAttendanceStatus={getAttendanceStatus}
-                AttendanceStatus={AttendanceStatus}
-            />
+            <Box sx={{display: 'flex', alignItems: 'center', mb: 3}}>
+                <IconButton onClick={() => navigate('/attendance')} sx={{mr: 2}}>
+                    <ArrowBackIcon />
+                </IconButton>
+                <Typography variant="h4">Exam Attendance Details</Typography>
+            </Box>
+
+            <Card sx={{mb: 3}}>
+                <CardContent>
+                    <Grid container spacing={3}>
+                        <Grid item xs={12} md={6}>
+                            <Typography variant="h5" gutterBottom>{course?.courseName || 'N/A'}</Typography>
+                            <Typography variant="body1" color="text.secondary" gutterBottom>
+                                {exam.examType} • Room {exam.room}
+                            </Typography>
+                            <Box sx={{mt: 2}}>
+                                <Typography variant="body2" color="text.secondary">Date & Time</Typography>
+                                <Typography variant="body1">{exam.examDate}</Typography>
+                                <Typography variant="body1">
+                                    {exam.startTime} - {endTime} ({exam.duration}h)
+                                </Typography>
+                            </Box>
+                        </Grid>
+                        <Grid item xs={12} md={3}>
+                            <Typography variant="body2" color="text.secondary" gutterBottom>Exam Status</Typography>
+                            <Chip
+                                label={examStatus}
+                                color={getStatusColor(examStatus)}
+                                size="medium"
+                            />
+                        </Grid>
+                        <Grid item xs={12} md={3}>
+                            <Typography variant="body2" color="text.secondary" gutterBottom>Attendance Summary</Typography>
+                            <Box sx={{display: 'flex', flexDirection: 'column', gap: 1}}>
+                                <Chip label={`Present: ${statusCounts.present}`} size="small" color="success" />
+                                <Chip label={`Late: ${statusCounts.late}`} size="small" color="warning" />
+                                <Chip label={`Absent: ${statusCounts.absent}`} size="small" color="error" />
+                            </Box>
+                        </Grid>
+                    </Grid>
+                </CardContent>
+            </Card>
+
             {isAdmin && (
                 <Button
                     variant="contained"
@@ -541,15 +501,17 @@ const AttendanceList = () => {
                     Add Manual Attendance
                 </Button>
             )}
+
             {error && <Alert severity="error" sx={{mb: 2}}>{error}</Alert>}
+
             <AttendanceTable
                 attendance={attendance}
                 columns={columns}
                 loading={loading}
-                exams={exams}
+                exams={[exam]}
                 handleEdit={handleOpen}
                 handleDelete={handleDelete}
-                courses={courses}
+                courses={course ? [course] : []}
                 students={students}
                 devices={devices}
                 getCheckInDate={getCheckInDate}
@@ -559,13 +521,14 @@ const AttendanceList = () => {
                 getStatusColor={getStatusColor}
                 AttendanceStatus={AttendanceStatus}
             />
+
             {isAdmin && (
                 <AttendanceFormDialog
                     open={open}
                     handleClose={handleClose}
                     editingAttendance={editingAttendance}
-                    exams={exams}
-                    courses={courses}
+                    exams={[exam]}
+                    courses={course ? [course] : []}
                     students={students}
                     handleSubmit={handleSubmit}
                     validationSchema={validationSchema}
@@ -583,4 +546,4 @@ const AttendanceList = () => {
     );
 };
 
-export default AttendanceList;
+export default ExamAttendance;
